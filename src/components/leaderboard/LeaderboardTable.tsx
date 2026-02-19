@@ -8,9 +8,11 @@ type SortKey = 'yieldScore' | 'weightedAPY' | 'totalDeposited';
 
 interface Props {
   entries: LeaderboardEntry[];
+  watchedAddresses?: Set<string>;
+  onFollowToggle?: (address: string) => void;
 }
 
-export function LeaderboardTable({ entries }: Props) {
+export function LeaderboardTable({ entries, watchedAddresses, onFollowToggle }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>('yieldScore');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -74,11 +76,17 @@ export function LeaderboardTable({ entries }: Props) {
               <th className="px-4 py-3 text-sm font-medium text-gray-400 text-left hidden lg:table-cell">
                 Strategy
               </th>
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody>
             {page_entries.map((entry) => (
-              <LeaderboardRow key={entry.address} entry={entry} />
+              <LeaderboardRow
+                key={entry.address}
+                entry={entry}
+                isFollowing={watchedAddresses?.has(entry.address.toLowerCase())}
+                onFollowToggle={onFollowToggle ? () => onFollowToggle(entry.address) : undefined}
+              />
             ))}
           </tbody>
         </table>
