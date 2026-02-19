@@ -1,9 +1,10 @@
-import { createPublicClient, http, formatUnits } from 'viem';
+import { createPublicClient, http, formatUnits, parseAbiItem } from 'viem';
 import type { Position } from '@/types';
 import type { ProtocolConfig } from '@/lib/registry';
 import { megaEth } from '@/lib/chains';
 import { sepolia } from 'wagmi/chains';
 import { getTokenAmountsFromLiquidity } from '@/lib/uniswapMath';
+import { getEthPriceUSD, isWETH, derivePricesFromSqrtPrice } from '@/lib/prices';
 
 const POSITION_MANAGER_ABI = [
   {
@@ -94,6 +95,7 @@ const ERC20_ABI = [
   },
 ] as const;
 
+// APY estimate by fee tier (fallback when no external data is available)
 const FEE_TIER_APY: Record<number, number> = {
   100: 2,
   500: 8,
@@ -102,7 +104,9 @@ const FEE_TIER_APY: Record<number, number> = {
 };
 
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
-const ASSUMED_POSITION_AGE_DAYS = 90;
+const TRANSFER_EVENT = parseAbiItem(
+  'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
+);
 
 function clientForChain(chain: 'megaeth' | 'sepolia') {
   if (chain === 'sepolia') {
@@ -129,8 +133,54 @@ type PosResult = readonly [
 type Slot0Result = readonly [bigint, number, number, number, number, number, boolean];
 
 /**
+ * Fetches the block timestamp when each tokenId was minted (Transfer from 0x0).
+ * Returns a map of tokenId (string) → unix timestamp.
+ * Falls back to an empty map if the RPC doesn't support the query.
+ */
+async function fetchMintTimestamps(
+  client: ReturnType<typeof clientForChain>,
+  positionManager: string,
+  tokenIds: bigint[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (tokenIds.length === 0) return result;
+
+  try {
+    const logs = await client.getLogs({
+      address: positionManager as `0x${string}`,
+      event: TRANSFER_EVENT,
+      args: {
+        from: ZERO_ADDRESS,
+        tokenId: tokenIds as [bigint, ...bigint[]],
+      },
+      fromBlock: 0n,
+      toBlock: 'latest',
+    });
+
+    // Batch-fetch unique block timestamps
+    const uniqueBlocks = [...new Set(logs.map((l) => l.blockNumber).filter((b): b is bigint => b != null))];
+    const blocks = await Promise.all(
+      uniqueBlocks.map((bn) => client.getBlock({ blockNumber: bn })),
+    );
+    const tsByBlock = new Map(uniqueBlocks.map((bn, i) => [bn.toString(), Number(blocks[i].timestamp)]));
+
+    logs.forEach((log) => {
+      if (log.args.tokenId != null && log.blockNumber != null) {
+        const ts = tsByBlock.get(log.blockNumber.toString());
+        if (ts) result.set(log.args.tokenId.toString(), ts);
+      }
+    });
+  } catch (err) {
+    console.warn('[UniV3] Could not fetch mint timestamps:', err);
+  }
+
+  return result;
+}
+
+/**
  * Generic Uniswap V3 fork LP position reader.
- * Reads NFT positions from a configurable positionManager + factory.
+ * Reads NFT positions, derives USD values from on-chain sqrtPrice + live ETH price,
+ * and fetches actual position age from Transfer event logs.
  */
 export async function readUniV3Positions(
   address: string,
@@ -201,6 +251,7 @@ export async function readUniV3Positions(
 
     if (validPositions.length === 0) return [];
 
+    // Batch: unique token addresses for metadata
     const uniqueTokens = new Set<string>();
     validPositions.forEach((p) => {
       uniqueTokens.add(p.token0.toLowerCase());
@@ -208,7 +259,8 @@ export async function readUniV3Positions(
     });
     const tokenAddresses = [...uniqueTokens];
 
-    const [symbolResults, decimalsResults] = await Promise.all([
+    // Batch: token metadata + ETH price + mint timestamps (parallel)
+    const [symbolResults, decimalsResults, ethPriceUSD, mintTimestamps] = await Promise.all([
       client.multicall({
         contracts: tokenAddresses.map((addr) => ({
           address: addr as `0x${string}`,
@@ -225,6 +277,8 @@ export async function readUniV3Positions(
         })),
         allowFailure: true,
       }),
+      getEthPriceUSD(),
+      fetchMintTimestamps(client, positionManager, validPositions.map((p) => p.tokenId)),
     ]);
 
     const tokenMeta: Record<string, { symbol: string; decimals: number }> = {};
@@ -262,7 +316,6 @@ export async function readUniV3Positions(
     });
 
     const now = Math.floor(Date.now() / 1000);
-    const estimatedEntryTimestamp = now - ASSUMED_POSITION_AGE_DAYS * 86400;
     const positions: Position[] = [];
 
     for (let i = 0; i < validPositions.length; i++) {
@@ -281,27 +334,52 @@ export async function readUniV3Positions(
       const t1Decimals = t1?.decimals ?? 18;
 
       let depositedUSD = 0;
+      let yieldEarned = 0;
+
       if (slot0Result.status === 'success' && poolAddr && poolAddr !== ZERO_ADDRESS) {
         const slot0 = slot0Result.result as Slot0Result;
         const sqrtPriceX96 = slot0[0];
+
+        // Derive token prices from ETH price + pool sqrtPrice
+        let t0PriceUSD = 0;
+        let t1PriceUSD = 0;
+
+        if (isWETH(t1Key)) {
+          // token1 is WETH — use ETH price for token1, derive token0 price
+          const derived = derivePricesFromSqrtPrice(sqrtPriceX96, t0Decimals, t1Decimals, 'token1', ethPriceUSD);
+          t0PriceUSD = derived.token0PriceUSD;
+          t1PriceUSD = derived.token1PriceUSD;
+        } else if (isWETH(t0Key)) {
+          // token0 is WETH
+          const derived = derivePricesFromSqrtPrice(sqrtPriceX96, t0Decimals, t1Decimals, 'token0', ethPriceUSD);
+          t0PriceUSD = derived.token0PriceUSD;
+          t1PriceUSD = derived.token1PriceUSD;
+        }
+        // For non-WETH pairs, prices stay $0 (no price anchor available)
+
         const { amount0, amount1 } = getTokenAmountsFromLiquidity(
           pos.liquidity,
           sqrtPriceX96,
           pos.tickLower,
           pos.tickUpper,
         );
+
         const amount0Human = amount0 / Math.pow(10, t0Decimals);
         const amount1Human = amount1 / Math.pow(10, t1Decimals);
-        // Treat token values at $0 unless caller enriches TOKEN_PRICES_USD
-        depositedUSD = amount0Human * 0 + amount1Human * 0;
-      }
+        depositedUSD = amount0Human * t0PriceUSD + amount1Human * t1PriceUSD;
 
-      const fees0Human = parseFloat(formatUnits(pos.tokensOwed0, t0Decimals));
-      const fees1Human = parseFloat(formatUnits(pos.tokensOwed1, t1Decimals));
-      const yieldEarned = fees0Human * 0 + fees1Human * 0;
+        // Uncollected fees = yield earned
+        const fees0Human = parseFloat(formatUnits(pos.tokensOwed0, t0Decimals));
+        const fees1Human = parseFloat(formatUnits(pos.tokensOwed1, t1Decimals));
+        yieldEarned = fees0Human * t0PriceUSD + fees1Human * t1PriceUSD;
+      }
 
       const currentAPY = FEE_TIER_APY[pos.fee] ?? 10;
       const feePct = (pos.fee / 1_000_000) * 100;
+
+      // Use actual mint timestamp; fall back to 1 day ago for very new positions
+      const entryTimestamp =
+        mintTimestamps.get(pos.tokenId.toString()) ?? now - 86400;
 
       positions.push({
         protocol: config.name,
@@ -313,7 +391,7 @@ export async function readUniV3Positions(
         currentAPY,
         yieldEarned,
         positionType: config.positionType,
-        entryTimestamp: estimatedEntryTimestamp,
+        entryTimestamp,
       });
     }
 

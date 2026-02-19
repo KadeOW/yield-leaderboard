@@ -1,4 +1,4 @@
-import { createPublicClient, http, formatUnits } from 'viem';
+import { createPublicClient, http, formatUnits, parseAbiItem } from 'viem';
 import type { Position } from '@/types';
 import type { ProtocolConfig } from '@/lib/registry';
 import { megaEth } from '@/lib/chains';
@@ -21,7 +21,9 @@ const VAULT_ABI = [
   },
 ] as const;
 
-const ASSUMED_POSITION_AGE_DAYS = 90;
+const SHARE_MINT_EVENT = parseAbiItem(
+  'event Transfer(address indexed from, address indexed to, uint256 value)',
+);
 
 function clientForChain(chain: 'megaeth' | 'sepolia') {
   if (chain === 'sepolia') {
@@ -65,10 +67,27 @@ export async function readERC4626Positions(
     const balanceFloat = parseFloat(formatUnits(assets, underlying.decimals));
     const depositedUSD = balanceFloat * underlying.priceUSD;
 
-    const now = Math.floor(Date.now() / 1000);
-    const estimatedEntryTimestamp = now - ASSUMED_POSITION_AGE_DAYS * 86400;
-    const yieldEarned =
-      depositedUSD * (config.apyEstimate / 100) * (ASSUMED_POSITION_AGE_DAYS / 365);
+    // Get actual entry timestamp from first share mint event
+    let entryTimestamp = Math.floor(Date.now() / 1000) - 86400;
+    try {
+      const logs = await client.getLogs({
+        address: vaultAddress as `0x${string}`,
+        event: SHARE_MINT_EVENT,
+        args: {
+          from: '0x0000000000000000000000000000000000000000' as `0x${string}`,
+          to: address as `0x${string}`,
+        },
+        fromBlock: 0n,
+        toBlock: 'latest',
+      });
+      if (logs.length > 0 && logs[0].blockNumber != null) {
+        const block = await client.getBlock({ blockNumber: logs[0].blockNumber });
+        entryTimestamp = Number(block.timestamp);
+      }
+    } catch {}
+
+    const ageDays = Math.max((Math.floor(Date.now() / 1000) - entryTimestamp) / 86400, 0);
+    const yieldEarned = depositedUSD * (config.apyEstimate / 100) * (ageDays / 365);
 
     return [
       {
@@ -81,7 +100,7 @@ export async function readERC4626Positions(
         currentAPY: config.apyEstimate,
         yieldEarned,
         positionType: config.positionType,
-        entryTimestamp: estimatedEntryTimestamp,
+        entryTimestamp,
       },
     ];
   } catch (err) {

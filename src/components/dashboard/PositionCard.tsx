@@ -12,6 +12,7 @@ const PROTOCOL_COLORS: Record<string, string> = {
   Spark: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400',
   Avon: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
   Prism: 'bg-violet-500/10 border-violet-500/30 text-violet-400',
+  Kumbaya: 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400',
 };
 
 const POSITION_TYPE_LABEL: Record<string, string> = {
@@ -89,29 +90,26 @@ export function PositionCard({ position, isMock }: Props) {
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-x-6 gap-y-3 mb-4">
         <div>
-          <p className="text-xs text-gray-500 mb-0.5">Deposited</p>
+          <p className="text-xs text-gray-500 mb-0.5">Value</p>
           {position.depositedUSD > 0 ? (
             <p className="font-semibold text-white">{formatUSD(position.depositedUSD)}</p>
           ) : (
-            <p className="font-semibold text-gray-400 text-sm">Liquidity position</p>
-          )}
-          {position.positionType === 'lp' && position.depositedAmount > BigInt(0) && (
-            <p className="text-xs text-gray-600 mt-0.5">
-              {formatTokenAmount(position.depositedAmount)} LP units
-            </p>
+            <p className="font-semibold text-gray-500 text-sm">Price unknown</p>
           )}
         </div>
         <div>
           <p className="text-xs text-gray-500 mb-0.5">Yield Earned</p>
           <p className="font-semibold text-green-400">+{formatUSD(position.yieldEarned)}</p>
-          {position.depositedUSD > 0 && (
+          {position.depositedUSD > 0 && position.yieldEarned > 0 && (
             <p className="text-xs text-gray-600 mt-0.5">
               {((position.yieldEarned / position.depositedUSD) * 100).toFixed(2)}% return
             </p>
           )}
         </div>
         <div>
-          <p className="text-xs text-gray-500 mb-1">Current APY</p>
+          <p className="text-xs text-gray-500 mb-1">
+            {position.positionType === 'lp' ? 'Est. APY' : 'Current APY'}
+          </p>
           <p className="font-bold text-accent">{formatAPY(position.currentAPY)}</p>
           {/* APY bar */}
           <div className="h-1 bg-border rounded-full overflow-hidden mt-1.5">
