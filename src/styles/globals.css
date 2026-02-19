@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: #0a0a0a;
+    --card: #1a1a1a;
+    --border: #2a2a2a;
+    --accent: #00FF94;
+    --accent-blue: #3B82F6;
+  }
+
+  * {
+    box-sizing: border-box;
+    padding: 0;
+    margin: 0;
+  }
+
+  html,
+  body {
+    background-color: #0a0a0a;
+    color: #ffffff;
+    font-family: 'Inter', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background-color: #00FF94;
+    color: #0a0a0a;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #0a0a0a;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #2a2a2a;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3a3a;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-card border border-border rounded-xl p-6;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-200 hover:scale-[1.02] hover:border-accent/30 hover:shadow-lg hover:shadow-accent/5;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-background font-semibold px-6 py-3 rounded-lg transition-all duration-200 hover:bg-accent/90 hover:shadow-lg hover:shadow-accent/20 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply border border-border text-white font-medium px-6 py-3 rounded-lg transition-all duration-200 hover:border-accent/50 hover:bg-white/5 active:scale-95;
+  }
+
+  .text-gradient {
+    @apply bg-gradient-to-r from-accent to-accent-blue bg-clip-text text-transparent;
+  }
+
+  .skeleton {
+    @apply animate-pulse bg-border rounded;
+  }
+}
