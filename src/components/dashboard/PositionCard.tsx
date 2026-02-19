@@ -62,12 +62,24 @@ export function PositionCard({ position, isMock }: Props) {
 
   return (
     <div className="card-hover group relative overflow-hidden">
-      {/* Mock data badge */}
-      {isMock && (
-        <div className="absolute top-3 right-3 text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500">
-          Demo
-        </div>
-      )}
+      {/* Top-right badges */}
+      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+        {position.inRange === true && (
+          <div className="text-xs px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent">
+            In Range
+          </div>
+        )}
+        {position.inRange === false && (
+          <div className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/30 text-red-400">
+            Out of Range
+          </div>
+        )}
+        {isMock && (
+          <div className="text-xs px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/20 text-yellow-500">
+            Demo
+          </div>
+        )}
+      </div>
 
       {/* Header */}
       <div className="flex items-start justify-between mb-4">

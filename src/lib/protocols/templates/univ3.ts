@@ -335,10 +335,15 @@ export async function readUniV3Positions(
 
       let depositedUSD = 0;
       let yieldEarned = 0;
+      let inRange: boolean | undefined = undefined;
 
       if (slot0Result.status === 'success' && poolAddr && poolAddr !== ZERO_ADDRESS) {
         const slot0 = slot0Result.result as Slot0Result;
         const sqrtPriceX96 = slot0[0];
+        const currentTick = slot0[1];
+
+        // In-range: current tick must be within [tickLower, tickUpper)
+        inRange = currentTick >= pos.tickLower && currentTick < pos.tickUpper;
 
         // Derive token prices from ETH price + pool sqrtPrice
         let t0PriceUSD = 0;
@@ -374,12 +379,23 @@ export async function readUniV3Positions(
         yieldEarned = fees0Human * t0PriceUSD + fees1Human * t1PriceUSD;
       }
 
-      const currentAPY = FEE_TIER_APY[pos.fee] ?? 10;
       const feePct = (pos.fee / 1_000_000) * 100;
 
       // Use actual mint timestamp; fall back to 1 day ago for very new positions
       const entryTimestamp =
         mintTimestamps.get(pos.tokenId.toString()) ?? now - 86400;
+
+      const ageDays = Math.max((now - entryTimestamp) / 86400, 0);
+
+      // Compute APY from actual earned fees if we have enough data.
+      // This reflects real yield — much more accurate than fee-tier estimate.
+      // Fall back to fee-tier estimate for new/freshly-collected positions.
+      let currentAPY: number;
+      if (yieldEarned > 0 && depositedUSD > 0 && ageDays >= 0.01) {
+        currentAPY = (yieldEarned / depositedUSD) * (365 / ageDays) * 100;
+      } else {
+        currentAPY = FEE_TIER_APY[pos.fee] ?? 10;
+      }
 
       positions.push({
         protocol: config.name,
@@ -392,6 +408,7 @@ export async function readUniV3Positions(
         yieldEarned,
         positionType: config.positionType,
         entryTimestamp,
+        inRange,
       });
     }
 

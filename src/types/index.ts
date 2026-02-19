@@ -9,6 +9,7 @@ export interface Position {
   yieldEarned: number;
   positionType: 'lending' | 'staking' | 'lp' | 'bond';
   entryTimestamp: number;
+  inRange?: boolean; // LP positions only — undefined for non-LP
 }
 
 export interface UserProfile {
