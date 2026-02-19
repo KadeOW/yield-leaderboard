@@ -9,7 +9,7 @@ interface Opportunity {
   protocol: string;
   chain: string;
   asset: string;
-  type: 'lending' | 'lp' | 'staking';
+  type: 'lending' | 'dex' | 'staking';
   apyMin: number;
   apyMax: number;
   tvlNote: string;
@@ -18,6 +18,7 @@ interface Opportunity {
   url: string;
   logoEmoji: string;
   color: string;
+  activeGlow: string; // box-shadow when user has active position
   tags: string[];
 }
 
@@ -36,6 +37,7 @@ const OPPORTUNITIES: Opportunity[] = [
     url: 'https://www.avon.xyz/',
     logoEmoji: '🌿',
     color: 'border-emerald-500/30 bg-emerald-500/5',
+    activeGlow: '0 0 0 1px rgba(16,185,129,0.5), 0 0 24px rgba(16,185,129,0.2)',
     tags: ['Stablecoin', 'Auto-compound', 'ERC-4626'],
   },
   {
@@ -43,15 +45,16 @@ const OPPORTUNITIES: Opportunity[] = [
     protocol: 'Prism',
     chain: 'MegaETH',
     asset: 'Token/WETH pairs',
-    type: 'lp',
+    type: 'dex',
     apyMin: 15,
     apyMax: 60,
     tvlNote: 'Concentrated liquidity',
-    risk: 'medium',
+    risk: 'low',
     description: 'Uniswap V3 fork on MegaETH. Concentrated liquidity pools with high fee capture from MegaETH\'s fast block throughput.',
     url: 'https://prismfi.cc/',
     logoEmoji: '💎',
     color: 'border-violet-500/30 bg-violet-500/5',
+    activeGlow: '0 0 0 1px rgba(139,92,246,0.5), 0 0 24px rgba(139,92,246,0.2)',
     tags: ['Concentrated LP', 'Active management', 'UniV3 fork'],
   },
   {
@@ -59,15 +62,16 @@ const OPPORTUNITIES: Opportunity[] = [
     protocol: 'Kumbaya',
     chain: 'MegaETH',
     asset: 'Token/WETH pairs',
-    type: 'lp',
+    type: 'dex',
     apyMin: 20,
     apyMax: 200,
     tvlNote: 'Concentrated liquidity',
-    risk: 'high',
+    risk: 'low',
     description: 'High-throughput AMM on MegaETH. Emerging token pairs with deep liquidity incentives and real-time fee generation.',
     url: 'https://www.kumbaya.xyz/',
     logoEmoji: '🌊',
     color: 'border-cyan-500/30 bg-cyan-500/5',
+    activeGlow: '0 0 0 1px rgba(6,182,212,0.5), 0 0 24px rgba(6,182,212,0.2)',
     tags: ['High APY', 'New pairs', 'UniV3 fork'],
   },
 ];
@@ -78,14 +82,14 @@ const RISK_COLORS = {
   high:   'text-red-400 bg-red-400/10 border-red-400/20',
 };
 
-const TYPE_LABELS = { lending: 'Lending', lp: 'LP', staking: 'Staking' };
+const TYPE_LABELS = { lending: 'Lending', dex: 'DEX', staking: 'Staking' };
 const TYPE_COLORS = {
   lending: 'text-purple-400 bg-purple-400/10',
-  lp:      'text-cyan-400 bg-cyan-400/10',
+  dex:     'text-cyan-400 bg-cyan-400/10',
   staking: 'text-blue-400 bg-blue-400/10',
 };
 
-type Filter = 'all' | 'lending' | 'lp' | 'staking';
+type Filter = 'all' | 'lending' | 'dex' | 'staking';
 
 export default function OpportunitiesPage() {
   const [filter, setFilter] = useState<Filter>('all');
@@ -104,16 +108,16 @@ export default function OpportunitiesPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-white">Yield Opportunities</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Curated yield-generating protocols across MegaETH and Ethereum.
+          Curated yield-generating protocols on MegaETH.
           {isConnected && (
-            <span className="text-accent ml-1">Positions you&apos;re already in are highlighted.</span>
+            <span className="text-accent ml-1">Protocols you&apos;re active in glow.</span>
           )}
         </p>
       </div>
 
       {/* Filter tabs */}
       <div className="flex gap-2 mb-6">
-        {(['all', 'lending', 'lp', 'staking'] as const).map((f) => (
+        {(['all', 'lending', 'dex', 'staking'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -135,7 +139,8 @@ export default function OpportunitiesPage() {
           return (
             <div
               key={opp.id}
-              className={`relative card-hover border ${opp.color} ${alreadyIn ? 'ring-1 ring-accent/30' : ''}`}
+              className={`relative card-hover border ${opp.color} transition-shadow duration-300`}
+              style={alreadyIn ? { boxShadow: opp.activeGlow } : undefined}
             >
               {alreadyIn && (
                 <div className="absolute top-3 right-3 text-xs px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent">
@@ -171,7 +176,7 @@ export default function OpportunitiesPage() {
               {/* Description */}
               <p className="text-xs text-gray-400 mb-4 leading-relaxed">{opp.description}</p>
 
-              {/* Tags + risk */}
+              {/* Tags */}
               <div className="flex flex-wrap gap-1.5 mb-4">
                 {opp.tags.map((tag) => (
                   <span key={tag} className="text-xs px-2 py-0.5 rounded bg-white/5 text-gray-500">{tag}</span>
@@ -197,7 +202,6 @@ export default function OpportunitiesPage() {
         })}
       </div>
 
-      {/* Footer note */}
       <p className="text-xs text-gray-600 text-center mt-8">
         APY estimates are indicative only and change with market conditions. Always DYOR before depositing.
       </p>
