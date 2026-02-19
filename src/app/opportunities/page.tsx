@@ -65,7 +65,7 @@ const OPPORTUNITIES: Opportunity[] = [
     tvlNote: 'Concentrated liquidity',
     risk: 'high',
     description: 'High-throughput AMM on MegaETH. Emerging token pairs with deep liquidity incentives and real-time fee generation.',
-    url: 'https://kumbaya.xyz',
+    url: 'https://www.kumbaya.xyz/',
     logoEmoji: '🌊',
     color: 'border-cyan-500/30 bg-cyan-500/5',
     tags: ['High APY', 'New pairs', 'UniV3 fork'],
