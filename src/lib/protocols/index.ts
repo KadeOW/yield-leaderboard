@@ -3,6 +3,7 @@ import { getAavePositions } from './aave';
 import { getMorphoPositions } from './morpho';
 import { getAvonPositions } from './avon';
 import { getPrismPositions } from './prism';
+import { getKumbayaPositions } from './kumbaya';
 import { getMockPositions } from './mock';
 import { getRegistry } from '@/lib/registry';
 import { readERC4626Positions } from './templates/erc4626';
@@ -24,15 +25,16 @@ export async function getAllPositions(address: string): Promise<Position[]> {
     return readUniV3Positions(address, config);
   });
 
-  const [aave, morpho, avon, prism, ...registryResults] = await Promise.all([
+  const [aave, morpho, avon, prism, kumbaya, ...registryResults] = await Promise.all([
     getAavePositions(address),
     getMorphoPositions(address),
     getAvonPositions(address),
     getPrismPositions(address),
+    getKumbayaPositions(address),
     ...registryReaders,
   ]);
 
-  const real = [...aave, ...morpho, ...avon, ...prism, ...registryResults.flat()];
+  const real = [...aave, ...morpho, ...avon, ...prism, ...kumbaya, ...registryResults.flat()];
 
   // De-duplicate by protocol name + assetAddress
   const seen = new Set<string>();

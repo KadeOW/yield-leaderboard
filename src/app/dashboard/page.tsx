@@ -58,7 +58,7 @@ export default function DashboardPage() {
   );
 
   // Determine if data is real on-chain positions or mock
-  const REAL_PROTOCOLS = new Set(['Aave V3', 'Avon', 'Prism']);
+  const REAL_PROTOCOLS = new Set(['Aave V3', 'Avon', 'Prism', 'Kumbaya']);
   const hasRealPositions = positions?.some((p) => REAL_PROTOCOLS.has(p.protocol));
   const isMockData = !hasRealPositions && (positions?.length ?? 0) > 0;
   const liveProtocols = positions

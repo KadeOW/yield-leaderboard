@@ -52,6 +52,21 @@ const BUILT_IN_PROTOCOLS: ProtocolConfig[] = [
     positionType: 'lp',
     addedAt: 0,
   },
+  {
+    id: '__kumbaya',
+    name: 'Kumbaya',
+    logoEmoji: '🌊',
+    template: 'univ3',
+    enabled: true,
+    chain: 'megaeth',
+    contracts: {
+      positionManager: '0x2b781C57e6358f64864Ff8EC464a03Fdaf9974bA',
+      factory: '0x68b34591f662508076927803c567cc8006988a09',
+    },
+    apyEstimate: 10,
+    positionType: 'lp',
+    addedAt: 0,
+  },
 ];
 
 export default function AdminPage() {
