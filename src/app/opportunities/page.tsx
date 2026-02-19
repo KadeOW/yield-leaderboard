@@ -40,7 +40,7 @@ const OPPORTUNITIES: Opportunity[] = [
   },
   {
     id: 'prism-weth',
-    protocol: 'Prism Finance',
+    protocol: 'Prism',
     chain: 'MegaETH',
     asset: 'Token/WETH pairs',
     type: 'lp',
@@ -49,7 +49,7 @@ const OPPORTUNITIES: Opportunity[] = [
     tvlNote: 'Concentrated liquidity',
     risk: 'medium',
     description: 'Uniswap V3 fork on MegaETH. Concentrated liquidity pools with high fee capture from MegaETH\'s fast block throughput.',
-    url: 'https://prism.finance',
+    url: 'https://prismfi.cc/',
     logoEmoji: '💎',
     color: 'border-violet-500/30 bg-violet-500/5',
     tags: ['Concentrated LP', 'Active management', 'UniV3 fork'],
