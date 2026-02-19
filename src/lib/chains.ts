@@ -20,6 +20,12 @@ export const megaEth = defineChain({
       url: 'https://megaexplorer.xyz',
     },
   },
+  contracts: {
+    // Canonical Multicall3 — deployed at the same address on all EVM chains
+    multicall3: {
+      address: '0xcA11bde05977b3631167028862bE2a173976CA11',
+    },
+  },
 });
 
 export const supportedChains = [megaEth, sepolia] as const;
