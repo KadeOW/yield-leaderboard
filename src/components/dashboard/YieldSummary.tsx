@@ -18,23 +18,24 @@ function ScoreGauge({ score }: { score: number }) {
     if (score === 0) return;
     const duration = 800;
     const start = performance.now();
-    const from = 0;
-
     function step(now: number) {
       const progress = Math.min((now - start) / duration, 1);
-      // Ease out cubic
       const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplayed(Math.round(from + (score - from) * eased));
+      setDisplayed(Math.round(score * eased));
       if (progress < 1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
   }, [score]);
 
-  // SVG arc gauge
-  const size = 96;
-  const strokeWidth = 8;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = Math.PI * radius; // half circle
+  // Self-contained SVG gauge — no negative margins, no overflow
+  const W = 110;
+  const strokeWidth = 9;
+  const radius = 44;
+  const cx = W / 2;
+  const cy = radius + strokeWidth / 2; // y of arc endpoints (arc peaks at y ≈ strokeWidth/2)
+  const H = cy + 32;                   // room for score text below endpoints
+
+  const circumference = Math.PI * radius;
   const arc = (displayed / 100) * circumference;
 
   const color =
@@ -46,38 +47,38 @@ function ScoreGauge({ score }: { score: number }) {
       ? '#fb923c'
       : '#f87171';
 
+  const sx = strokeWidth / 2;
+  const ex = W - strokeWidth / 2;
+
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: size, height: size / 2 + 8 }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ marginTop: -(size / 2) }}>
-          {/* Background arc */}
-          <path
-            d={`M ${strokeWidth / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth / 2} ${size / 2}`}
-            fill="none"
-            stroke="#2a2a2a"
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-          />
-          {/* Filled arc */}
-          <path
-            d={`M ${strokeWidth / 2} ${size / 2} A ${radius} ${radius} 0 0 1 ${size - strokeWidth / 2} ${size / 2}`}
-            fill="none"
-            stroke={color}
-            strokeWidth={strokeWidth}
-            strokeLinecap="round"
-            strokeDasharray={`${arc} ${circumference}`}
-            style={{ transition: 'stroke-dasharray 0.5s ease-out, stroke 0.3s' }}
-          />
-        </svg>
-        <div
-          className="absolute inset-x-0 bottom-0 flex flex-col items-center"
-        >
-          <span className="text-2xl font-bold" style={{ color }}>
-            {displayed}
-          </span>
-          <span className="text-xs text-gray-500">/ 100</span>
-        </div>
-      </div>
+    <div className="flex items-center justify-center">
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}>
+        {/* Background track */}
+        <path
+          d={`M ${sx} ${cy} A ${radius} ${radius} 0 0 1 ${ex} ${cy}`}
+          fill="none"
+          stroke="#2a2a2a"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        {/* Filled arc */}
+        <path
+          d={`M ${sx} ${cy} A ${radius} ${radius} 0 0 1 ${ex} ${cy}`}
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={`${arc} ${circumference}`}
+          style={{ transition: 'stroke-dasharray 0.5s ease-out, stroke 0.3s' }}
+        />
+        {/* Score number */}
+        <text x={cx} y={cy + 10} textAnchor="middle" fill={color} fontSize="24" fontWeight="bold" fontFamily="inherit">
+          {displayed}
+        </text>
+        <text x={cx} y={cy + 26} textAnchor="middle" fill="#6b7280" fontSize="11" fontFamily="inherit">
+          / 100
+        </text>
+      </svg>
     </div>
   );
 }
