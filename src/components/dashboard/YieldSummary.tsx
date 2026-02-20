@@ -7,11 +7,13 @@ interface Props {
   totalYieldEarned: number;
   weightedAPY: number;
   yieldScore: number;
+  walletValueUSD?: number;
 }
 
-export function YieldSummary({ totalDeposited, totalYieldEarned, weightedAPY, yieldScore }: Props) {
+export function YieldSummary({ totalDeposited, totalYieldEarned, weightedAPY, yieldScore, walletValueUSD = 0 }: Props) {
+  const totalPortfolio = totalDeposited + walletValueUSD;
   const returnPct =
-    totalDeposited > 0 ? (totalYieldEarned / totalDeposited) * 100 : 0;
+    totalPortfolio > 0 ? (totalYieldEarned / totalPortfolio) * 100 : 0;
 
   const scoreTier =
     yieldScore >= 80 ? 'Excellent' :
@@ -23,10 +25,12 @@ export function YieldSummary({ totalDeposited, totalYieldEarned, weightedAPY, yi
       {/* Portfolio Value */}
       <div className="bg-card px-4 py-3">
         <p className="text-xs text-gray-500 mb-0.5 uppercase tracking-wide">Portfolio</p>
-        <p className="text-lg font-bold text-white">{formatUSD(totalDeposited)}</p>
-        {totalYieldEarned > 0 && (
+        <p className="text-lg font-bold text-white">{formatUSD(totalPortfolio)}</p>
+        {walletValueUSD > 0 && totalDeposited > 0 ? (
+          <p className="text-xs text-gray-600">{formatUSD(totalDeposited)} in positions</p>
+        ) : totalYieldEarned > 0 ? (
           <p className="text-xs text-green-400">+{formatUSD(totalYieldEarned)} yield</p>
-        )}
+        ) : null}
       </div>
 
       {/* Yield Earned */}

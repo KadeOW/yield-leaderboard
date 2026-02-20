@@ -1,4 +1,21 @@
 import { NextResponse } from 'next/server';
+import { createPublicClient, http, formatUnits } from 'viem';
+import { megaEth } from '@/lib/chains';
+
+const megaClient = createPublicClient({
+  chain: megaEth,
+  transport: http('https://megaeth.drpc.org'),
+});
+
+const TOTAL_SUPPLY_ABI = [
+  {
+    name: 'totalSupply',
+    type: 'function' as const,
+    stateMutability: 'view' as const,
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const;
 
 export const revalidate = 300;
 
@@ -53,7 +70,7 @@ type RawPool = {
 type RawIncluded = {
   id: string;
   type: string;
-  attributes: { address?: string; symbol?: string; image_url?: string };
+  attributes: { address?: string; symbol?: string; image_url?: string; decimals?: number };
 };
 
 async function fetchDexPools(dexSlug: string): Promise<{ data: RawPool[]; included: RawIncluded[] }> {
@@ -70,6 +87,7 @@ type TokenAgg = {
   address: string;
   symbol: string;
   logo?: string;
+  decimals: number;
   priceUSD: number;
   priceChange24h: number;
   volume24hUSD: number;
@@ -93,13 +111,14 @@ export async function GET() {
     ]);
 
     // Build token metadata from included items
-    const tokenMeta: Record<string, { address: string; symbol: string; logo?: string }> = {};
+    const tokenMeta: Record<string, { address: string; symbol: string; logo?: string; decimals: number }> = {};
     for (const item of [...prism.included, ...kumbaya.included]) {
       if (item.type === 'token') {
         tokenMeta[item.id] = {
           address: (item.attributes.address ?? item.id.replace(/^megaeth_/, '')).toLowerCase(),
           symbol: item.attributes.symbol ?? '',
           logo: item.attributes.image_url ?? undefined,
+          decimals: item.attributes.decimals ?? 18,
         };
       }
     }
@@ -133,6 +152,7 @@ export async function GET() {
             address: addr,
             symbol: meta.symbol,
             logo: meta.logo,
+            decimals: meta.decimals,
             priceUSD: tokenPrice,
             priceChange24h: priceChange,
             volume24hUSD: vol24h,
@@ -162,9 +182,16 @@ export async function GET() {
     for (const pool of prism.data) processPool(pool, 'Prism');
     for (const pool of kumbaya.data) processPool(pool, 'Kumbaya');
 
-    // Fetch FDV/market cap from GeckoTerminal multi-token endpoint
-    const addresses = [...tokenMap.keys()].filter(Boolean).slice(0, 30);
-    const fdvMap: Record<string, number> = {};
+    const tokenEntries = [...tokenMap.values()].filter((t) => t.volume24hUSD > 0 || t.priceUSD > 0);
+    const addresses = tokenEntries.map((t) => t.address).filter(Boolean).slice(0, 30);
+
+    // Step 1: fetch GeckoTerminal's cross-DEX token data in one batched call.
+    // This gives us their aggregated price_usd (includes SectorOne and any other DEX)
+    // and fdv_usd when they have total-supply data.
+    // Next.js data cache (next: { revalidate: 300 }) means this only hits GeckoTerminal
+    // once per 5 minutes — well within free-tier rate limits alongside the pool fetches.
+    const geckoPrice: Record<string, number> = {};   // address → GeckoTerminal price_usd
+    const geckoFdv: Record<string, number> = {};     // address → GeckoTerminal fdv_usd
     if (addresses.length > 0) {
       try {
         const multiRes = await fetch(
@@ -173,23 +200,52 @@ export async function GET() {
         );
         if (multiRes.ok) {
           const multiData: {
-            data?: { attributes: { address?: string; fdv_usd?: string; market_cap_usd?: string } }[];
+            data?: { attributes: { address?: string; price_usd?: string; fdv_usd?: string; market_cap_usd?: string } }[];
           } = await multiRes.json();
           for (const item of multiData.data ?? []) {
             const addr = item.attributes.address?.toLowerCase();
             if (!addr) continue;
-            const val = parseFloat(item.attributes.fdv_usd ?? item.attributes.market_cap_usd ?? '0');
-            if (val > 0) fdvMap[addr] = val;
+            const p = parseFloat(item.attributes.price_usd ?? '0');
+            const f = parseFloat(item.attributes.fdv_usd ?? item.attributes.market_cap_usd ?? '0');
+            if (p > 0) geckoPrice[addr] = p;
+            if (f > 0) geckoFdv[addr] = f;
           }
         }
+      } catch {
+        // Continue without GeckoTerminal token data
+      }
+    }
+
+    // Step 2: fetch on-chain totalSupply() for tokens where GeckoTerminal has no fdv_usd.
+    // Combined with GeckoTerminal's cross-DEX price_usd this gives the most accurate FDV.
+    const needsSupply = tokenEntries.filter((t) => !geckoFdv[t.address]);
+    const fdvMap: Record<string, number> = { ...geckoFdv };
+    if (needsSupply.length > 0) {
+      try {
+        const supplyResults = await megaClient.multicall({
+          contracts: needsSupply.map((t) => ({
+            address: t.address as `0x${string}`,
+            abi: TOTAL_SUPPLY_ABI,
+            functionName: 'totalSupply' as const,
+          })),
+          allowFailure: true,
+        });
+        supplyResults.forEach((result, i) => {
+          if (result.status !== 'success') return;
+          const t = needsSupply[i];
+          const supply = Number(formatUnits(result.result as bigint, t.decimals));
+          // Prefer GeckoTerminal's cross-DEX price; fall back to pool price
+          const price = geckoPrice[t.address] ?? t.priceUSD;
+          const fdv = supply * price;
+          if (fdv > 0 && fdv < 1e15) fdvMap[t.address] = fdv; // sanity cap
+        });
       } catch {
         // FDV optional — continue without it
       }
     }
 
-    const tokens: TokenStat[] = [...tokenMap.values()]
-      .filter((t) => t.volume24hUSD > 0 || t.priceUSD > 0)
-      .map(({ _refTVL: _, ...t }) => ({ ...t, fdvUSD: fdvMap[t.address] }))
+    const tokens: TokenStat[] = tokenEntries
+      .map(({ _refTVL: _, decimals: __, ...t }) => ({ ...t, fdvUSD: fdvMap[t.address] }))
       .sort((a, b) => b.volume24hUSD - a.volume24hUSD);
 
     const payload: TokenStatsResponse = { tokens, fetchedAt: Date.now() };

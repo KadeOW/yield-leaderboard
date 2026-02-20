@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
-// Revalidate every 3 hours (Next.js ISR-style caching for route handlers)
-export const revalidate = 10800;
+// Revalidate every 5 minutes
+export const revalidate = 300;
 
 // Module-level cache so dev mode doesn't hammer GeckoTerminal on every hot-reload
 // Initialized with ts=0 so the first request always fetches fresh data
@@ -9,7 +9,7 @@ let cachedResponse: { data: PoolDataResponse; ts: number } = {
   data: { prism: [], kumbaya: [], tokens: {}, fetchedAt: 0 },
   ts: 0,
 };
-const CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface PoolInfo {
   address: string;
@@ -62,7 +62,7 @@ async function fetchDexPools(
 
   const res = await fetch(url, {
     headers: GECKO_HEADERS,
-    next: { revalidate: 10800 },
+    next: { revalidate: 300 },
   });
 
   if (!res.ok) {
@@ -120,7 +120,10 @@ async function fetchDexPools(
   for (const pool of data.data ?? []) {
     const a = pool.attributes;
     const tvl = parseFloat(a.reserve_in_usd ?? '0');
-    const vol24h = parseFloat(a.volume_usd?.h24 ?? '0');
+    const volRaw = parseFloat(a.volume_usd?.h24 ?? '0');
+    // Kumbaya reports two-sided volume (input + output token per swap ≈ 2× GeckoTerminal).
+    // Prism matches GeckoTerminal's one-sided convention, so no adjustment needed.
+    const vol24h = dexName === 'Kumbaya' ? volRaw * 2 : volRaw;
     // pool_fee_percentage isn't in the GeckoTerminal response — parse from name ("USDT0 / WETH 0.3%")
     const feeMatch = (a.name ?? '').match(/([\d.]+)%\s*$/);
     const feePct = feeMatch ? parseFloat(feeMatch[1]) : 0;

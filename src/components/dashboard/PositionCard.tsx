@@ -291,7 +291,7 @@ export function PositionCard({ position, isMock, livePoolAPY, dataUpdatedAt }: P
             <p className="text-xs text-gray-500 mb-0.5">
               Pool APY
               {livePoolAPY !== undefined && (
-                <span className="ml-1 text-[10px] text-accent/60">live</span>
+                <span className="ml-1 text-[10px] text-accent/60">↻ 5m</span>
               )}
             </p>
             {livePoolAPY !== undefined ? (

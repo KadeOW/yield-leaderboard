@@ -3,7 +3,7 @@ import type { PoolInfo, PoolDataResponse } from '@/app/api/pools/route';
 
 export type { PoolInfo, PoolDataResponse };
 
-const THREE_HOURS = 3 * 60 * 60 * 1000;
+const FIVE_MIN = 5 * 60 * 1000;
 
 export function usePoolData() {
   return useQuery<PoolDataResponse>({
@@ -13,8 +13,10 @@ export function usePoolData() {
       if (!res.ok) throw new Error(`pool data fetch failed: ${res.status}`);
       return res.json();
     },
-    staleTime: THREE_HOURS,
-    gcTime: THREE_HOURS + 30 * 60 * 1000,
+    staleTime: FIVE_MIN,
+    gcTime: FIVE_MIN * 3,
+    refetchInterval: FIVE_MIN,
+    refetchIntervalInBackground: false,
     retry: 1,
   });
 }

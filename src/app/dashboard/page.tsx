@@ -10,8 +10,9 @@ import { YieldChart } from '@/components/dashboard/YieldChart';
 import { ConnectButton } from '@/components/wallet/ConnectButton';
 import { truncateAddress, formatUSD } from '@/lib/utils';
 import { useMemo } from 'react';
-import { usePoolData, poolAPYByAddress } from '@/hooks/usePoolData';
+import { usePoolLiveStats } from '@/hooks/usePoolLiveStats';
 import { useWalletPortfolio } from '@/hooks/useWalletPortfolio';
+import { usePortfolioHistory } from '@/hooks/usePortfolioHistory';
 
 function generateChartData(totalDeposited: number, totalYieldEarned: number) {
   const points = 30;
@@ -51,14 +52,28 @@ function SkeletonDashboard() {
 export default function DashboardPage() {
   const { isConnected, address } = useAccount();
   const { data: positions, isLoading, isError, dataUpdatedAt } = usePositions();
-  const { data: poolData } = usePoolData();
   const { data: portfolio } = useWalletPortfolio();
+
+  // Collect all LP pool addresses so we can fetch fresh APYs for just those pools
+  const lpPoolAddresses = useMemo(
+    () => positions?.filter((p) => p.positionType === 'lp').map((p) => p.assetAddress) ?? [],
+    [positions],
+  );
+  const livePoolApys = usePoolLiveStats(lpPoolAddresses);
   const { totalDeposited, totalYieldEarned, weightedAPY, yieldScore, strategyTags } =
     useYieldData(positions);
 
+  const walletValueUSD = portfolio?.totalValueUSD ?? 0;
+
+  // Real 30-day portfolio history from on-chain token price data
+  const { data: historyPoints } = usePortfolioHistory(portfolio?.holdings, totalDeposited);
+
   const chartData = useMemo(
-    () => generateChartData(totalDeposited, totalYieldEarned),
-    [totalDeposited, totalYieldEarned]
+    () =>
+      historyPoints && historyPoints.length > 0
+        ? historyPoints
+        : generateChartData(totalDeposited + walletValueUSD, totalYieldEarned),
+    [historyPoints, totalDeposited, walletValueUSD, totalYieldEarned],
   );
 
   // Determine if data is real on-chain positions or mock
@@ -141,6 +156,7 @@ export default function DashboardPage() {
             totalYieldEarned={totalYieldEarned}
             weightedAPY={weightedAPY}
             yieldScore={yieldScore}
+            walletValueUSD={walletValueUSD}
           />
 
           {/* Wallet Holdings */}
@@ -201,7 +217,7 @@ export default function DashboardPage() {
                     isMock={isMockData}
                     livePoolAPY={
                       position.positionType === 'lp'
-                        ? poolAPYByAddress(poolData, position.assetAddress)
+                        ? livePoolApys.get(position.assetAddress.toLowerCase())
                         : undefined
                     }
                     dataUpdatedAt={dataUpdatedAt}
