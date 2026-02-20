@@ -19,40 +19,40 @@ export function YieldSummary({ totalDeposited, totalYieldEarned, weightedAPY, yi
     yieldScore >= 40 ? 'Fair' : 'Building';
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {/* Total Portfolio */}
-      <div className="card">
-        <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Portfolio Value</p>
-        <p className="text-2xl font-bold text-white">{formatUSD(totalDeposited)}</p>
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border rounded-xl overflow-hidden">
+      {/* Portfolio Value */}
+      <div className="bg-card px-4 py-3">
+        <p className="text-xs text-gray-500 mb-0.5 uppercase tracking-wide">Portfolio</p>
+        <p className="text-lg font-bold text-white">{formatUSD(totalDeposited)}</p>
         {totalYieldEarned > 0 && (
-          <p className="text-xs text-green-400 mt-1">+{formatUSD(totalYieldEarned)} yield earned</p>
+          <p className="text-xs text-green-400">+{formatUSD(totalYieldEarned)} yield</p>
         )}
       </div>
 
-      {/* Total Yield */}
-      <div className="card">
-        <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Yield Earned</p>
-        <p className="text-2xl font-bold text-green-400">+{formatUSD(totalYieldEarned)}</p>
+      {/* Yield Earned */}
+      <div className="bg-card px-4 py-3">
+        <p className="text-xs text-gray-500 mb-0.5 uppercase tracking-wide">Yield Earned</p>
+        <p className="text-lg font-bold text-green-400">+{formatUSD(totalYieldEarned)}</p>
         {returnPct > 0 && (
-          <p className="text-xs text-gray-500 mt-1">{returnPct.toFixed(2)}% total return</p>
+          <p className="text-xs text-gray-600">{returnPct.toFixed(2)}% return</p>
         )}
       </div>
 
       {/* Weighted APY */}
-      <div className="card">
-        <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Weighted APY</p>
-        <p className="text-2xl font-bold text-accent">{formatAPY(weightedAPY)}</p>
-        <p className="text-xs text-gray-500 mt-1">across all positions</p>
+      <div className="bg-card px-4 py-3">
+        <p className="text-xs text-gray-500 mb-0.5 uppercase tracking-wide">Weighted APY</p>
+        <p className="text-lg font-bold text-accent">{formatAPY(weightedAPY)}</p>
+        <p className="text-xs text-gray-600">across all positions</p>
       </div>
 
-      {/* Yield Score — numbers only */}
-      <div className="card">
-        <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Yield Score</p>
-        <div className="flex items-baseline gap-1.5">
-          <p className={`text-2xl font-bold ${scoreColor(yieldScore)}`}>{yieldScore}</p>
-          <p className="text-sm text-gray-600">/ 100</p>
+      {/* Yield Score */}
+      <div className="bg-card px-4 py-3">
+        <p className="text-xs text-gray-500 mb-0.5 uppercase tracking-wide">Yield Score</p>
+        <div className="flex items-baseline gap-1">
+          <p className={`text-lg font-bold ${scoreColor(yieldScore)}`}>{yieldScore}</p>
+          <p className="text-xs text-gray-600">/ 100</p>
         </div>
-        <p className={`text-xs mt-1 ${scoreColor(yieldScore)}`}>{scoreTier}</p>
+        <p className={`text-xs ${scoreColor(yieldScore)}`}>{scoreTier}</p>
       </div>
     </div>
   );

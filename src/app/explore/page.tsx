@@ -4,141 +4,248 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount } from 'wagmi';
 import { usePositions } from '@/hooks/usePositions';
+import { usePoolData, type PoolInfo } from '@/hooks/usePoolData';
 import { detectStrategy, type DetectedStrategy, type StrategyStep } from '@/lib/strategyDetector';
 import { scanForLoopStrategists, type DiscoveredWalletStrategy } from '@/lib/strategyScanner';
 import { truncateAddress, formatUSD, formatAPY } from '@/lib/utils';
 import { ConnectButton } from '@/components/wallet/ConnectButton';
 
-// ─── Opportunities data ───────────────────────────────────────────────────────
+// ─── Pool table ───────────────────────────────────────────────────────────────
 
-interface Opportunity {
-  id: string;
-  protocol: string;
-  chain: string;
-  asset: string;
-  type: 'lending' | 'dex' | 'staking';
-  apyMin: number;
-  apyMax: number;
-  tvlNote: string;
-  risk: 'low' | 'medium' | 'high';
-  description: string;
-  url: string;
-  logoEmoji: string;
-  color: string;
-  activeGlow: string;
-  tags: string[];
+type PoolSort = 'apy' | 'tvl' | 'volume24h' | 'fees24h';
+
+const DEX_BADGE: Record<string, string> = {
+  Prism:   'text-violet-400 bg-violet-400/10 border-violet-400/20',
+  Kumbaya: 'text-cyan-400 bg-cyan-400/10 border-cyan-400/20',
+};
+
+function formatM(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}K`;
+  return `$${v.toFixed(0)}`;
 }
 
-const OPPORTUNITIES: Opportunity[] = [
-  {
-    id: 'avon-usdm',
-    protocol: 'Avon',
-    chain: 'MegaETH',
-    asset: 'USDM',
-    type: 'lending',
-    apyMin: 7,
-    apyMax: 10,
-    tvlNote: 'Stablecoin vault',
-    risk: 'low',
-    description: 'ERC-4626 yield vault accepting USDM stablecoin. Auto-compounding with no lock-up.',
-    url: 'https://www.avon.xyz/',
-    logoEmoji: '🌿',
-    color: 'border-emerald-500/30 bg-emerald-500/5',
-    activeGlow: '0 0 0 1px rgba(16,185,129,0.5), 0 0 24px rgba(16,185,129,0.2)',
-    tags: ['Stablecoin', 'Auto-compound', 'ERC-4626'],
-  },
-  {
-    id: 'prism-weth',
-    protocol: 'Prism',
-    chain: 'MegaETH',
-    asset: 'Token/WETH pairs',
-    type: 'dex',
-    apyMin: 15,
-    apyMax: 60,
-    tvlNote: 'Concentrated liquidity',
-    risk: 'low',
-    description: "Uniswap V3 fork on MegaETH. Concentrated liquidity pools with high fee capture from MegaETH's fast block throughput.",
-    url: 'https://prismfi.cc/',
-    logoEmoji: '💎',
-    color: 'border-violet-500/30 bg-violet-500/5',
-    activeGlow: '0 0 0 1px rgba(139,92,246,0.5), 0 0 24px rgba(139,92,246,0.2)',
-    tags: ['Concentrated LP', 'Active management', 'UniV3 fork'],
-  },
-  {
-    id: 'kumbaya-weth',
-    protocol: 'Kumbaya',
-    chain: 'MegaETH',
-    asset: 'Token/WETH pairs',
-    type: 'dex',
-    apyMin: 20,
-    apyMax: 200,
-    tvlNote: 'Concentrated liquidity',
-    risk: 'low',
-    description: 'High-throughput AMM on MegaETH. Emerging token pairs with deep liquidity incentives and real-time fee generation.',
-    url: 'https://www.kumbaya.xyz/',
-    logoEmoji: '🌊',
-    color: 'border-cyan-500/30 bg-cyan-500/5',
-    activeGlow: '0 0 0 1px rgba(6,182,212,0.5), 0 0 24px rgba(6,182,212,0.2)',
-    tags: ['High APY', 'New pairs', 'UniV3 fork'],
-  },
-];
+function PoolTable({
+  prism,
+  kumbaya,
+  activePoolAddresses,
+  isLoading,
+}: {
+  prism: PoolInfo[];
+  kumbaya: PoolInfo[];
+  /** Pool contract addresses where the user holds an LP position */
+  activePoolAddresses: Set<string>;
+  isLoading: boolean;
+}) {
+  const [sort, setSort] = useState<PoolSort>('apy');
+  const [dexFilter, setDexFilter] = useState<'all' | 'Prism' | 'Kumbaya'>('all');
 
-const RISK_COLORS = {
-  low:    'text-accent bg-accent/10 border-accent/20',
-  medium: 'text-yellow-400 bg-yellow-400/10 border-yellow-400/20',
-  high:   'text-red-400 bg-red-400/10 border-red-400/20',
-};
-const TYPE_LABELS = { lending: 'Lending', dex: 'DEX', staking: 'Staking' };
-const TYPE_COLORS = {
-  lending: 'text-purple-400 bg-purple-400/10',
-  dex:     'text-cyan-400 bg-cyan-400/10',
-  staking: 'text-blue-400 bg-blue-400/10',
-};
+  const all = [...prism, ...kumbaya].filter(
+    (p) => dexFilter === 'all' || p.dex === dexFilter,
+  );
+  const sorted = [...all].sort((a, b) => b[sort === 'apy' ? 'apy' : sort === 'tvl' ? 'tvlUSD' : sort === 'volume24h' ? 'volume24hUSD' : 'fees24hUSD'] - a[sort === 'apy' ? 'apy' : sort === 'tvl' ? 'tvlUSD' : sort === 'volume24h' ? 'volume24hUSD' : 'fees24hUSD']);
+
+  const totalTVL = all.reduce((s, p) => s + p.tvlUSD, 0);
+  const totalVol = all.reduce((s, p) => s + p.volume24hUSD, 0);
+
+  function SortBtn({ col, label }: { col: PoolSort; label: string }) {
+    return (
+      <button
+        onClick={() => setSort(col)}
+        className={`text-xs px-2 py-0.5 rounded transition-colors ${sort === col ? 'text-white bg-white/10' : 'text-gray-500 hover:text-gray-300'}`}
+      >
+        {label} {sort === col ? '↓' : ''}
+      </button>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="h-12 bg-white/5 rounded-lg animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+
+  if (sorted.length === 0) {
+    return (
+      <div className="text-center py-10 text-gray-500">
+        <p>No pool data available — check back soon.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Summary bar */}
+      <div className="flex flex-wrap items-center gap-6 mb-4 px-1">
+        <div>
+          <p className="text-xs text-gray-500">Total TVL</p>
+          <p className="font-semibold text-white">{formatM(totalTVL)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">24h Volume</p>
+          <p className="font-semibold text-white">{formatM(totalVol)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Pools</p>
+          <p className="font-semibold text-white">{sorted.length}</p>
+        </div>
+        {/* DEX filter */}
+        <div className="ml-auto flex gap-1">
+          {(['all', 'Prism', 'Kumbaya'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setDexFilter(f)}
+              className={`text-xs px-3 py-1 rounded-lg transition-colors ${dexFilter === f ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}
+            >
+              {f === 'all' ? 'All' : f}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Column headers */}
+      <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 px-3 pb-2 border-b border-border text-xs text-gray-500">
+        <span>Pool</span>
+        <SortBtn col="tvl" label="TVL" />
+        <SortBtn col="volume24h" label="24h Vol" />
+        <SortBtn col="fees24h" label="24h Fees" />
+        <SortBtn col="apy" label="Fee APY" />
+        <span className="w-16" />
+      </div>
+
+      {/* Rows */}
+      <div className="divide-y divide-border/50">
+        {sorted.map((pool) => {
+          const isActive = activePoolAddresses.has(pool.address.toLowerCase());
+          return (
+            <div
+              key={pool.address}
+              className={`grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-x-4 items-center px-3 py-3 hover:bg-white/[0.02] transition-colors ${isActive ? 'ring-1 ring-inset ring-accent/20' : ''}`}
+            >
+              {/* Pair */}
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="flex -space-x-1">
+                  {pool.token0Logo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={pool.token0Logo} alt={pool.token0Symbol} className="w-5 h-5 rounded-full border border-card" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-white/10 border border-card flex items-center justify-center text-[9px] text-gray-400">{pool.token0Symbol[0]}</div>
+                  )}
+                  {pool.token1Logo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={pool.token1Logo} alt={pool.token1Symbol} className="w-5 h-5 rounded-full border border-card" />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-white/10 border border-card flex items-center justify-center text-[9px] text-gray-400">{pool.token1Symbol[0]}</div>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-white font-medium truncate">
+                    {pool.token0Symbol}/{pool.token1Symbol}
+                    <span className="ml-1 text-xs text-gray-600">{pool.feePct}%</span>
+                  </p>
+                  <span className={`text-[10px] px-1.5 py-px rounded border ${DEX_BADGE[pool.dex]}`}>{pool.dex}</span>
+                </div>
+                {isActive && (
+                  <span className="text-[10px] px-1.5 py-px rounded bg-accent/10 border border-accent/30 text-accent">Active</span>
+                )}
+              </div>
+
+              <span className="text-sm text-gray-300 tabular-nums text-right">{formatM(pool.tvlUSD)}</span>
+              <span className="text-sm text-gray-400 tabular-nums text-right">{formatM(pool.volume24hUSD)}</span>
+              <span className="text-sm text-gray-400 tabular-nums text-right">{formatM(pool.fees24hUSD)}</span>
+              <span className={`text-sm font-bold tabular-nums text-right ${pool.apy > 50 ? 'text-accent' : pool.apy > 20 ? 'text-yellow-400' : 'text-gray-300'}`}>
+                {pool.apy > 0 ? `${pool.apy.toFixed(1)}%` : '—'}
+              </span>
+              <a
+                href={pool.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-16 text-center text-xs px-2 py-1 rounded border border-white/10 text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                Open →
+              </a>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-xs text-gray-600 text-center mt-4">
+        Fee APY = (24h fees / TVL) × 365. Data from GeckoTerminal, refreshed every 3 hours.
+      </p>
+    </div>
+  );
+}
 
 // ─── Strategy data ────────────────────────────────────────────────────────────
 
-const CURATED: DetectedStrategy[] = [
-  {
-    name: 'Yield Loop: Avon → Kumbaya',
-    description: 'Deposit USDM into Avon to earn vault yield and receive USDMy. Re-deploy USDMy as liquidity in a Kumbaya pool to stack LP fees on top.',
-    isLoop: true, complexity: 'Intermediate', baseAPY: 8, bonusAPY: 60, totalAPY: 68, totalValue: 0,
-    tags: ['Yield Loop', 'Stablecoin', 'Kumbaya'],
-    steps: [
-      { stepNumber: 1, protocol: 'Avon',    emoji: '🌿', color: '#10b981', action: 'Deposit USDM, receive USDMy',  inputToken: 'USDM',  outputToken: 'USDMy',   apy: 8,  url: 'https://www.avon.xyz/',    positionValue: 0 },
-      { stepNumber: 2, protocol: 'Kumbaya', emoji: '🌊', color: '#06b6d4', action: 'Provide USDMy/WETH liquidity', inputToken: 'USDMy', outputToken: 'LP Fees', apy: 60, url: 'https://www.kumbaya.xyz/', positionValue: 0 },
-    ],
-  },
-  {
-    name: 'Yield Loop: Avon → Prism',
-    description: 'Deposit USDM into Avon, then use USDMy shares as one side of a concentrated LP on Prism — earning vault yield and swap fees simultaneously.',
-    isLoop: true, complexity: 'Intermediate', baseAPY: 8, bonusAPY: 25, totalAPY: 33, totalValue: 0,
-    tags: ['Yield Loop', 'Stablecoin', 'Prism'],
-    steps: [
-      { stepNumber: 1, protocol: 'Avon',  emoji: '🌿', color: '#10b981', action: 'Deposit USDM, receive USDMy',  inputToken: 'USDM',  outputToken: 'USDMy',   apy: 8,  url: 'https://www.avon.xyz/', positionValue: 0 },
-      { stepNumber: 2, protocol: 'Prism', emoji: '💎', color: '#8b5cf6', action: 'Provide USDMy/WETH liquidity', inputToken: 'USDMy', outputToken: 'LP Fees', apy: 25, url: 'https://prismfi.cc/',   positionValue: 0 },
-    ],
-  },
-  {
-    name: 'Double Loop: Avon → Kumbaya + Prism',
-    description: 'Split USDMy across both Kumbaya and Prism to diversify LP risk while maximising fee capture. Vault yield compounds underneath both positions.',
-    isLoop: true, complexity: 'Advanced', baseAPY: 8, bonusAPY: 85, totalAPY: 93, totalValue: 0,
-    tags: ['Yield Loop', 'Stablecoin', 'Kumbaya', 'Prism', 'Diversified'],
-    steps: [
-      { stepNumber: 1, protocol: 'Avon',    emoji: '🌿', color: '#10b981', action: 'Deposit USDM, receive USDMy',  inputToken: 'USDM',  outputToken: 'USDMy',   apy: 8,  url: 'https://www.avon.xyz/',    positionValue: 0 },
-      { stepNumber: 2, protocol: 'Kumbaya', emoji: '🌊', color: '#06b6d4', action: 'Provide USDMy/WETH liquidity', inputToken: 'USDMy', outputToken: 'LP Fees', apy: 60, url: 'https://www.kumbaya.xyz/', positionValue: 0 },
-      { stepNumber: 3, protocol: 'Prism',   emoji: '💎', color: '#8b5cf6', action: 'Provide USDMy/WETH liquidity', inputToken: 'USDMy', outputToken: 'LP Fees', apy: 25, url: 'https://prismfi.cc/',       positionValue: 0 },
-    ],
-  },
-  {
-    name: 'Pure Kumbaya LP',
-    description: 'Provide WETH-paired liquidity directly on Kumbaya. Higher capital efficiency if you want direct ETH exposure without the vault layer.',
-    isLoop: false, complexity: 'Simple', baseAPY: 80, bonusAPY: 0, totalAPY: 80, totalValue: 0,
-    tags: ['LP', 'Kumbaya', 'ETH'],
-    steps: [
-      { stepNumber: 1, protocol: 'Kumbaya', emoji: '🌊', color: '#06b6d4', action: 'Provide Token/WETH liquidity', inputToken: 'WETH', outputToken: 'LP Fees', apy: 80, url: 'https://www.kumbaya.xyz/', positionValue: 0 },
-    ],
-  },
-];
+const AVON_APY = 8; // Avon vault yield (stable, fetched separately if needed)
+
+/** Picks the best pool (highest APY with ≥$10k TVL) from a list. */
+function bestPool(pools: PoolInfo[], minTVL = 10_000): PoolInfo | undefined {
+  return pools
+    .filter((p) => p.tvlUSD >= minTVL)
+    .sort((a, b) => b.apy - a.apy)[0];
+}
+
+function buildCuratedStrategies(
+  kumbayaPools: PoolInfo[],
+  prismPools: PoolInfo[],
+): DetectedStrategy[] {
+  const kBest = bestPool(kumbayaPools);
+  const pBest = bestPool(prismPools);
+
+  const kAPY = Math.round(kBest?.apy ?? 60);
+  const pAPY = Math.round(pBest?.apy ?? 25);
+  const kAction = kBest ? `Provide ${kBest.token0Symbol}/${kBest.token1Symbol} ${kBest.feePct}% liquidity` : 'Provide USDMy/WETH liquidity';
+  const pAction = pBest ? `Provide ${pBest.token0Symbol}/${pBest.token1Symbol} ${pBest.feePct}% liquidity` : 'Provide USDMy/WETH liquidity';
+
+  return [
+    {
+      name: 'Yield Loop: Avon → Kumbaya',
+      description: 'Deposit USDM into Avon to earn vault yield and receive USDMy. Re-deploy USDMy as liquidity in a Kumbaya pool to stack LP fees on top.',
+      isLoop: true, complexity: 'Intermediate', baseAPY: AVON_APY, bonusAPY: kAPY, totalAPY: AVON_APY + kAPY, totalValue: 0,
+      tags: ['Yield Loop', 'Stablecoin', 'Kumbaya'],
+      steps: [
+        { stepNumber: 1, protocol: 'Avon',    emoji: '🌿', color: '#10b981', action: 'Deposit USDM, receive USDMy', inputToken: 'USDM',  outputToken: 'USDMy',   apy: AVON_APY, url: 'https://www.avon.xyz/',    positionValue: 0 },
+        { stepNumber: 2, protocol: 'Kumbaya', emoji: '🌊', color: '#06b6d4', action: kAction,                       inputToken: 'USDMy', outputToken: 'LP Fees', apy: kAPY,     url: 'https://www.kumbaya.xyz/', positionValue: 0 },
+      ],
+    },
+    {
+      name: 'Yield Loop: Avon → Prism',
+      description: 'Deposit USDM into Avon, then use USDMy shares as one side of a concentrated LP on Prism — earning vault yield and swap fees simultaneously.',
+      isLoop: true, complexity: 'Intermediate', baseAPY: AVON_APY, bonusAPY: pAPY, totalAPY: AVON_APY + pAPY, totalValue: 0,
+      tags: ['Yield Loop', 'Stablecoin', 'Prism'],
+      steps: [
+        { stepNumber: 1, protocol: 'Avon',  emoji: '🌿', color: '#10b981', action: 'Deposit USDM, receive USDMy', inputToken: 'USDM',  outputToken: 'USDMy',   apy: AVON_APY, url: 'https://www.avon.xyz/', positionValue: 0 },
+        { stepNumber: 2, protocol: 'Prism', emoji: '💎', color: '#8b5cf6', action: pAction,                       inputToken: 'USDMy', outputToken: 'LP Fees', apy: pAPY,     url: 'https://prismfi.cc/',   positionValue: 0 },
+      ],
+    },
+    {
+      name: 'Double Loop: Avon → Kumbaya + Prism',
+      description: 'Split USDMy across both Kumbaya and Prism to diversify LP risk while maximising fee capture. Vault yield compounds underneath both positions.',
+      isLoop: true, complexity: 'Advanced', baseAPY: AVON_APY, bonusAPY: kAPY + pAPY, totalAPY: AVON_APY + kAPY + pAPY, totalValue: 0,
+      tags: ['Yield Loop', 'Stablecoin', 'Kumbaya', 'Prism', 'Diversified'],
+      steps: [
+        { stepNumber: 1, protocol: 'Avon',    emoji: '🌿', color: '#10b981', action: 'Deposit USDM, receive USDMy', inputToken: 'USDM',  outputToken: 'USDMy',   apy: AVON_APY, url: 'https://www.avon.xyz/',    positionValue: 0 },
+        { stepNumber: 2, protocol: 'Kumbaya', emoji: '🌊', color: '#06b6d4', action: kAction,                       inputToken: 'USDMy', outputToken: 'LP Fees', apy: kAPY,     url: 'https://www.kumbaya.xyz/', positionValue: 0 },
+        { stepNumber: 3, protocol: 'Prism',   emoji: '💎', color: '#8b5cf6', action: pAction,                       inputToken: 'USDMy', outputToken: 'LP Fees', apy: pAPY,     url: 'https://prismfi.cc/',       positionValue: 0 },
+      ],
+    },
+    {
+      name: 'Pure Kumbaya LP',
+      description: 'Provide WETH-paired liquidity directly on Kumbaya. Higher capital efficiency if you want direct ETH exposure without the vault layer.',
+      isLoop: false, complexity: 'Simple', baseAPY: kAPY, bonusAPY: 0, totalAPY: kAPY, totalValue: 0,
+      tags: ['LP', 'Kumbaya', 'ETH'],
+      steps: [
+        { stepNumber: 1, protocol: 'Kumbaya', emoji: '🌊', color: '#06b6d4', action: kAction, inputToken: 'WETH', outputToken: 'LP Fees', apy: kAPY, url: 'https://www.kumbaya.xyz/', positionValue: 0 },
+      ],
+    },
+  ];
+}
 
 // ─── Strategy sub-components ──────────────────────────────────────────────────
 
@@ -237,59 +344,27 @@ function StrategyCard({ strategy, walletAddress, isOwn }: { strategy: DetectedSt
   );
 }
 
-// ─── Opportunities sub-components ─────────────────────────────────────────────
-
-function OpportunityCard({ opp, alreadyIn }: { opp: Opportunity; alreadyIn: boolean }) {
-  return (
-    <div
-      className={`relative card-hover border ${opp.color} transition-shadow duration-300`}
-      style={alreadyIn ? { boxShadow: opp.activeGlow } : undefined}
-    >
-      {alreadyIn && (
-        <div className="absolute top-3 right-3 text-xs px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent">Active</div>
-      )}
-      <div className="flex items-start gap-3 mb-3">
-        <div className="text-2xl">{opp.logoEmoji}</div>
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-bold text-white">{opp.protocol}</h3>
-            <span className={`text-xs px-2 py-0.5 rounded-full ${TYPE_COLORS[opp.type]}`}>{TYPE_LABELS[opp.type]}</span>
-          </div>
-          <p className="text-xs text-gray-500 mt-0.5">{opp.chain} · {opp.tvlNote}</p>
-        </div>
-      </div>
-      <p className="text-xs text-gray-400 mb-3 font-mono">{opp.asset}</p>
-      <div className="mb-3">
-        <p className="text-xs text-gray-500 mb-1">Est. APY Range</p>
-        <p className="text-xl font-bold text-accent">{opp.apyMin}% – {opp.apyMax}%</p>
-      </div>
-      <p className="text-xs text-gray-400 mb-4 leading-relaxed">{opp.description}</p>
-      <div className="flex flex-wrap gap-1.5 mb-4">
-        {opp.tags.map((tag) => <span key={tag} className="text-xs px-2 py-0.5 rounded bg-white/5 text-gray-500">{tag}</span>)}
-      </div>
-      <div className="flex items-center justify-between">
-        <span className={`text-xs px-2 py-0.5 rounded-full border capitalize ${RISK_COLORS[opp.risk]}`}>{opp.risk} risk</span>
-        <a href={opp.url} target="_blank" rel="noopener noreferrer"
-          className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-gray-300 hover:bg-white/10 hover:text-white transition-colors border border-white/10">
-          Open app →
-        </a>
-      </div>
-    </div>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 type Tab = 'strategies' | 'protocols';
 
 export default function ExplorePage() {
-  const [tab, setTab] = useState<Tab>('strategies');
-  const [oppFilter, setOppFilter] = useState<'all' | 'lending' | 'dex' | 'staking'>('all');
+  const [tab, setTab] = useState<Tab>('protocols');
   const { isConnected } = useAccount();
   const { data: myPositions, isLoading: myLoading } = usePositions();
+  const { data: poolData, isLoading: poolLoading } = usePoolData();
 
   const myStrategy = myPositions ? detectStrategy(myPositions) : null;
-  const activeProtocols = new Set(myPositions?.map((p) => p.protocol) ?? []);
+
+  // Only LP positions count as "active" on a DEX — just holding a token does not
+  const lpPositions = myPositions?.filter((p) => p.positionType === 'lp') ?? [];
+  const activeLPProtocols = new Set(lpPositions.map((p) => p.protocol));
+  const activePoolAddresses = new Set(lpPositions.map((p) => p.assetAddress.toLowerCase()));
+  const hasAvonPosition = myPositions?.some((p) => p.protocol === 'Avon') ?? false;
+
+  const prismPools = poolData?.prism ?? [];
+  const kumbayaPools = poolData?.kumbaya ?? [];
+  const CURATED = buildCuratedStrategies(kumbayaPools, prismPools);
 
   const { data: discovered = [], isLoading: scanLoading } = useQuery<DiscoveredWalletStrategy[]>({
     queryKey: ['strategy-scan'],
@@ -300,7 +375,6 @@ export default function ExplorePage() {
   });
 
   const communityStrategies = discovered.length > 0 ? discovered : null;
-  const visibleOpps = OPPORTUNITIES.filter((o) => oppFilter === 'all' || o.type === oppFilter);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
@@ -312,13 +386,13 @@ export default function ExplorePage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-8 border-b border-border">
-        <button onClick={() => setTab('strategies')}
-          className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === 'strategies' ? 'border-accent text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
-          Strategies
-        </button>
         <button onClick={() => setTab('protocols')}
           className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === 'protocols' ? 'border-accent text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
           Protocols
+        </button>
+        <button onClick={() => setTab('strategies')}
+          className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === 'strategies' ? 'border-accent text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
+          Strategies
         </button>
       </div>
 
@@ -355,13 +429,13 @@ export default function ExplorePage() {
               </div>
             )}
             {isConnected && myLoading && <div className="h-40 bg-white/5 rounded-xl animate-pulse" />}
-            {isConnected && !myLoading && myStrategy && <StrategyCard strategy={myStrategy} isOwn />}
-            {isConnected && !myLoading && !myStrategy && (
+            {isConnected && !myLoading && myStrategy?.isLoop && <StrategyCard strategy={myStrategy} isOwn />}
+            {isConnected && !myLoading && !myStrategy?.isLoop && (
               <div className="card border-dashed border-border text-center py-10">
                 <p className="text-2xl mb-3">🌱</p>
-                <p className="font-medium text-white mb-2">No looping strategy detected yet</p>
+                <p className="font-medium text-white mb-2">No yield loop detected yet</p>
                 <p className="text-sm text-gray-500 mb-4 max-w-sm mx-auto">
-                  Start by depositing USDM into Avon, then use the USDMy you receive as LP liquidity on Kumbaya or Prism.
+                  Deposit USDM into Avon to receive USDMy, then pair USDMy as liquidity on Kumbaya or Prism. That&apos;s a loop.
                 </p>
                 <a href="https://www.avon.xyz/" target="_blank" rel="noopener noreferrer" className="btn-primary inline-block px-5 py-2 text-sm">
                   Start on Avon →
@@ -392,22 +466,95 @@ export default function ExplorePage() {
 
       {/* ── Protocols tab ── */}
       {tab === 'protocols' && (
-        <div>
-          <div className="flex gap-2 mb-6">
-            {(['all', 'lending', 'dex', 'staking'] as const).map((f) => (
-              <button key={f} onClick={() => setOppFilter(f)}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize ${oppFilter === f ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'}`}>
-                {f === 'all' ? 'All' : TYPE_LABELS[f]}
-              </button>
-            ))}
+        <div className="space-y-8">
+          {/* Protocol overview cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Avon */}
+            <div className={`card border-emerald-500/30 bg-emerald-500/5 ${hasAvonPosition ? 'ring-1 ring-emerald-500/40' : ''}`}
+              style={hasAvonPosition ? { boxShadow: '0 0 0 1px rgba(16,185,129,0.5), 0 0 24px rgba(16,185,129,0.2)' } : undefined}>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">🌿</span>
+                <div>
+                  <p className="font-bold text-white">Avon</p>
+                  <p className="text-xs text-gray-500">ERC-4626 vault · Stablecoin</p>
+                </div>
+                {hasAvonPosition && <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent">Active</span>}
+              </div>
+              <p className="text-xs text-gray-400 mb-3">Deposit USDM stablecoin to earn auto-compounding yield. Receive USDMy vault shares.</p>
+              <div className="flex items-center justify-between">
+                <div><p className="text-xs text-gray-500">Est. APY</p><p className="font-bold text-accent">7–10%</p></div>
+                <a href="https://www.avon.xyz/" target="_blank" rel="noopener noreferrer"
+                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-colors">Open →</a>
+              </div>
+            </div>
+            {/* Prism */}
+            <div className={`card border-violet-500/30 bg-violet-500/5 ${activeLPProtocols.has('Prism') ? 'ring-1 ring-violet-500/40' : ''}`}
+              style={activeLPProtocols.has('Prism') ? { boxShadow: '0 0 0 1px rgba(139,92,246,0.5), 0 0 24px rgba(139,92,246,0.2)' } : undefined}>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">💎</span>
+                <div>
+                  <p className="font-bold text-white">Prism</p>
+                  <p className="text-xs text-gray-500">UniV3 fork · {prismPools.length} pools</p>
+                </div>
+                {activeLPProtocols.has('Prism') && <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent">Active</span>}
+              </div>
+              <p className="text-xs text-gray-400 mb-3">Concentrated liquidity DEX on MegaETH. High fee capture from real-time block throughput.</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">Top Pool APY</p>
+                  <p className="font-bold text-violet-400">
+                    {prismPools.length > 0 ? `${Math.round(bestPool(prismPools)?.apy ?? 0)}%` : '—'}
+                  </p>
+                </div>
+                <a href="https://prismfi.cc/" target="_blank" rel="noopener noreferrer"
+                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-colors">Open →</a>
+              </div>
+            </div>
+            {/* Kumbaya */}
+            <div className={`card border-cyan-500/30 bg-cyan-500/5 ${activeLPProtocols.has('Kumbaya') ? 'ring-1 ring-cyan-500/40' : ''}`}
+              style={activeLPProtocols.has('Kumbaya') ? { boxShadow: '0 0 0 1px rgba(6,182,212,0.5), 0 0 24px rgba(6,182,212,0.2)' } : undefined}>
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">🌊</span>
+                <div>
+                  <p className="font-bold text-white">Kumbaya</p>
+                  <p className="text-xs text-gray-500">UniV3 fork · {kumbayaPools.length} pools</p>
+                </div>
+                {activeLPProtocols.has('Kumbaya') && <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent">Active</span>}
+              </div>
+              <p className="text-xs text-gray-400 mb-3">High-throughput AMM on MegaETH with deep liquidity incentives and real-time fee generation.</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">Top Pool APY</p>
+                  <p className="font-bold text-cyan-400">
+                    {kumbayaPools.length > 0 ? `${Math.round(bestPool(kumbayaPools)?.apy ?? 0)}%` : '—'}
+                  </p>
+                </div>
+                <a href="https://www.kumbaya.xyz/" target="_blank" rel="noopener noreferrer"
+                  className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-gray-300 hover:text-white hover:bg-white/5 transition-colors">Open →</a>
+              </div>
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {visibleOpps.map((opp) => (
-              <OpportunityCard key={opp.id} opp={opp} alreadyIn={activeProtocols.has(opp.protocol)} />
-            ))}
+
+          {/* Live pool table */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="font-bold text-white">Live Pools</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Sorted by fee APY · refreshed every 3h</p>
+              </div>
+              {poolData?.fetchedAt && (
+                <p className="text-xs text-gray-600">
+                  Updated {new Date(poolData.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              )}
+            </div>
+            <PoolTable
+              prism={prismPools}
+              kumbaya={kumbayaPools}
+              activePoolAddresses={activePoolAddresses}
+              isLoading={poolLoading}
+            />
           </div>
-          {isConnected && <p className="text-xs text-gray-500 text-center mt-2">Protocols you&apos;re active in glow.</p>}
-          <p className="text-xs text-gray-600 text-center mt-4">APY estimates are indicative only. Always DYOR before depositing.</p>
         </div>
       )}
     </div>

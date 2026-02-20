@@ -7,7 +7,7 @@ import { ConnectButton } from '@/components/wallet/ConnectButton';
 
 const navLinks = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/leaderboard', label: 'Leaderboard' },
+  { href: '/leaderboard', label: 'Live Feed' },
   { href: '/explore', label: 'Explore' },
 ];
 

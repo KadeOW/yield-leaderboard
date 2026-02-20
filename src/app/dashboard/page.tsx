@@ -8,8 +8,10 @@ import { YieldSummary } from '@/components/dashboard/YieldSummary';
 import { PositionCard } from '@/components/dashboard/PositionCard';
 import { YieldChart } from '@/components/dashboard/YieldChart';
 import { ConnectButton } from '@/components/wallet/ConnectButton';
-import { truncateAddress } from '@/lib/utils';
+import { truncateAddress, formatUSD } from '@/lib/utils';
 import { useMemo } from 'react';
+import { usePoolData, poolAPYByAddress } from '@/hooks/usePoolData';
+import { useWalletPortfolio } from '@/hooks/useWalletPortfolio';
 
 function generateChartData(totalDeposited: number, totalYieldEarned: number) {
   const points = 30;
@@ -49,6 +51,8 @@ function SkeletonDashboard() {
 export default function DashboardPage() {
   const { isConnected, address } = useAccount();
   const { data: positions, isLoading, isError } = usePositions();
+  const { data: poolData } = usePoolData();
+  const { data: portfolio } = useWalletPortfolio();
   const { totalDeposited, totalYieldEarned, weightedAPY, yieldScore, strategyTags } =
     useYieldData(positions);
 
@@ -83,7 +87,7 @@ export default function DashboardPage() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
       {/* Page header */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-white">My Dashboard</h1>
           <div className="flex items-center gap-2 mt-1">
@@ -127,7 +131,11 @@ export default function DashboardPage() {
 
       {/* Dashboard content */}
       {!isLoading && !isError && (
-        <div className="space-y-6">
+        <div className="space-y-4">
+          {/* Chart first — compact, at the top */}
+          <YieldChart data={chartData} compact />
+
+          {/* Stats bar */}
           <YieldSummary
             totalDeposited={totalDeposited}
             totalYieldEarned={totalYieldEarned}
@@ -135,7 +143,36 @@ export default function DashboardPage() {
             yieldScore={yieldScore}
           />
 
-          <YieldChart data={chartData} />
+          {/* Wallet Holdings */}
+          {portfolio && portfolio.holdings.length > 0 && (
+            <div className="card !py-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-white">Wallet Holdings</p>
+                <p className="text-sm font-bold text-white">{formatUSD(portfolio.totalValueUSD)}</p>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                {portfolio.holdings.map((h) => (
+                  <div key={h.address} className="flex items-center gap-2 py-1.5">
+                    {h.logo ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={h.logo} alt={h.symbol} className="w-6 h-6 rounded-full shrink-0" />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-[10px] text-gray-400 shrink-0 font-medium">
+                        {h.symbol[0]}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-white truncate">{h.symbol}</p>
+                      <p className="text-xs text-gray-500">
+                        {h.priceUSD > 0 ? formatUSD(h.valueUSD) : '—'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
 
           {/* Positions */}
           <div>
@@ -162,6 +199,11 @@ export default function DashboardPage() {
                     key={`${position.protocol}-${position.asset}-${i}`}
                     position={position}
                     isMock={isMockData}
+                    livePoolAPY={
+                      position.positionType === 'lp'
+                        ? poolAPYByAddress(poolData, position.assetAddress)
+                        : undefined
+                    }
                   />
                 ))}
               </div>

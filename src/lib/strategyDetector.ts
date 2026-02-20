@@ -69,24 +69,26 @@ function lpContainsAvonOutput(assetStr: string): boolean {
 export function detectStrategy(positions: Position[]): DetectedStrategy | null {
   if (!positions || positions.length === 0) return null;
 
-  const avonPositions   = positions.filter((p) => p.protocol === 'Avon');
-  const prismPositions  = positions.filter((p) => p.protocol === 'Prism');
+  const avonPositions    = positions.filter((p) => p.protocol === 'Avon');
+  const prismPositions   = positions.filter((p) => p.protocol === 'Prism');
   const kumbayaPositions = positions.filter((p) => p.protocol === 'Kumbaya');
-  const lpPositions     = [...prismPositions, ...kumbayaPositions];
-  const otherPositions  = positions.filter(
+  const lpPositions      = [...prismPositions, ...kumbayaPositions];
+  const otherPositions   = positions.filter(
     (p) => !['Avon', 'Prism', 'Kumbaya'].includes(p.protocol)
   );
 
-  const hasAvon  = avonPositions.length > 0;
-  const hasLP    = lpPositions.length > 0;
+  const hasAvon = avonPositions.length > 0;
 
-  // Detect whether the LP pair involves Avon output (= true looping)
-  const loopLP = lpPositions.filter((p) => lpContainsAvonOutput(p.asset));
+  // LP positions that actually use Avon output (USDM/USDMy) — these form the loop
+  const loopLP      = lpPositions.filter((p) => lpContainsAvonOutput(p.asset));
+  // LP positions unrelated to the Avon loop (e.g. KPI/WETH, ETH/USDC, etc.)
+  const standaloneLP = lpPositions.filter((p) => !lpContainsAvonOutput(p.asset));
+
   const isLoop = hasAvon && loopLP.length > 0;
 
   const steps: StrategyStep[] = [];
 
-  // Step 1 — Avon vault
+  // Step 1 — Avon vault (loop chain entry)
   if (hasAvon) {
     const pos = avonPositions[0];
     steps.push({
@@ -103,17 +105,34 @@ export function detectStrategy(positions: Position[]): DetectedStrategy | null {
     });
   }
 
-  // Subsequent LP steps
-  for (const pos of lpPositions) {
+  // Loop LP steps — only LPs whose pair contains USDMy/USDM
+  for (const pos of loopLP) {
     const meta = PROTOCOL_META[pos.protocol] ?? { url: '#', emoji: '🏦', color: '#6b7280' };
-    const inputTok = isLoop && hasAvon ? 'USDMy' : pos.asset.split('/')[0];
     steps.push({
       stepNumber: steps.length + 1,
       protocol: pos.protocol,
       emoji: meta.emoji,
       color: meta.color,
       action: `Provide ${pos.asset} liquidity`,
-      inputToken: inputTok,
+      inputToken: 'USDMy',
+      outputToken: 'LP Fees',
+      apy: pos.currentAPY,
+      url: meta.url,
+      positionValue: pos.depositedUSD,
+    });
+  }
+
+  // Standalone LP steps — unrelated to the Avon loop
+  for (const pos of standaloneLP) {
+    const meta = PROTOCOL_META[pos.protocol] ?? { url: '#', emoji: '🏦', color: '#6b7280' };
+    const [token0] = pos.asset.split('/');
+    steps.push({
+      stepNumber: steps.length + 1,
+      protocol: pos.protocol,
+      emoji: meta.emoji,
+      color: meta.color,
+      action: `Provide ${pos.asset} liquidity`,
+      inputToken: token0,
       outputToken: 'LP Fees',
       apy: pos.currentAPY,
       url: meta.url,
@@ -148,24 +167,32 @@ export function detectStrategy(positions: Position[]): DetectedStrategy | null {
   const complexity: DetectedStrategy['complexity'] =
     steps.length >= 3 ? 'Advanced' : steps.length === 2 ? 'Intermediate' : 'Simple';
 
-  // Name generation
-  const protocolChain = [...new Set(steps.map((s) => s.protocol))].join(' → ');
+  // Name generation — based only on the loop chain, not standalone LPs
+  const loopProtocols = [
+    ...(hasAvon ? ['Avon'] : []),
+    ...loopLP.map((p) => p.protocol),
+  ];
+  const allProtocols = [...new Set(steps.map((s) => s.protocol))];
   const name = isLoop
-    ? `Yield Loop: ${protocolChain}`
+    ? `Yield Loop: ${loopProtocols.join(' → ')}`
     : steps.length > 1
-    ? `Multi-Protocol: ${protocolChain}`
+    ? `Multi-Protocol: ${allProtocols.join(' → ')}`
     : `${steps[0].protocol} Vault`;
 
+  const standaloneDesc = standaloneLP.length > 0
+    ? ` Also providing independent liquidity in ${standaloneLP.map((p) => p.asset).join(', ')}.`
+    : '';
+
   const description = isLoop
-    ? `Deposits USDM into Avon to earn vault yield and receive USDMy, then re-deploys USDMy as liquidity in ${loopLP.map((p) => p.protocol).join(' and ')} to stack LP fees on top.`
-    : hasLP
+    ? `Deposits USDM into Avon to earn vault yield and receive USDMy, then re-deploys USDMy as liquidity in ${loopLP.map((p) => p.protocol).join(' and ')} to stack LP fees on top.${standaloneDesc}`
+    : lpPositions.length > 0
     ? `Provides concentrated liquidity across ${lpPositions.map((p) => p.protocol).join(' and ')} to capture trading fees.`
     : `Earns stable yield via the Avon USDM vault.`;
 
   const tags: string[] = [];
   if (isLoop) tags.push('Yield Loop');
   if (hasAvon) tags.push('Stablecoin');
-  if (hasLP) tags.push('LP');
+  if (lpPositions.length > 0) tags.push('LP');
   if (prismPositions.length > 0) tags.push('Prism');
   if (kumbayaPositions.length > 0) tags.push('Kumbaya');
 

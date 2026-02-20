@@ -18,20 +18,30 @@ interface DataPoint {
 
 interface Props {
   data: DataPoint[];
+  compact?: boolean;
 }
 
-export function YieldChart({ data }: Props) {
+export function YieldChart({ data, compact }: Props) {
+  const height = compact ? 110 : 240;
+
   return (
-    <div className="card">
-      <h3 className="font-semibold mb-4">Portfolio Value Over Time</h3>
-      <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data} margin={{ top: 5, right: 5, bottom: 5, left: 10 }}>
+    <div className={compact ? 'card !px-3 !py-2' : 'card'}>
+      {!compact && <h3 className="font-semibold mb-4">Portfolio Value Over Time</h3>}
+      <ResponsiveContainer width="100%" height={height}>
+        <LineChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: compact ? 0 : 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#2a2a2a" />
-          <XAxis dataKey="date" stroke="#6b7280" tick={{ fontSize: 12 }} />
+          <XAxis
+            dataKey="date"
+            stroke="#6b7280"
+            tick={{ fontSize: compact ? 10 : 12 }}
+            tickLine={false}
+            interval={compact ? 6 : 'preserveStartEnd'}
+          />
           <YAxis
             stroke="#6b7280"
-            tick={{ fontSize: 12 }}
+            tick={{ fontSize: compact ? 10 : 12 }}
             tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+            width={compact ? 36 : 48}
           />
           <Tooltip
             contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 8 }}
@@ -42,9 +52,9 @@ export function YieldChart({ data }: Props) {
             type="monotone"
             dataKey="value"
             stroke="#00FF94"
-            strokeWidth={2}
+            strokeWidth={compact ? 1.5 : 2}
             dot={false}
-            activeDot={{ r: 4, fill: '#00FF94' }}
+            activeDot={{ r: 3, fill: '#00FF94' }}
           />
         </LineChart>
       </ResponsiveContainer>

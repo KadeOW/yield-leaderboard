@@ -42,9 +42,10 @@ const TOKEN_EMOJI: Record<string, string> = {
 interface Props {
   position: Position;
   isMock?: boolean;
+  livePoolAPY?: number; // current fee APY for this pool from GeckoTerminal
 }
 
-export function PositionCard({ position, isMock }: Props) {
+export function PositionCard({ position, isMock, livePoolAPY }: Props) {
   const protocolColor =
     PROTOCOL_COLORS[position.protocol] ?? 'bg-accent/10 border-accent/30 text-accent';
   const positionLabel = POSITION_TYPE_LABEL[position.positionType] ?? position.positionType;
@@ -120,7 +121,7 @@ export function PositionCard({ position, isMock }: Props) {
         </div>
         <div>
           <p className="text-xs text-gray-500 mb-1">
-            {position.positionType === 'lp' ? 'Est. APY' : 'Current APY'}
+            {position.positionType === 'lp' ? 'Your Earned APY' : 'Current APY'}
           </p>
           <p className="font-bold text-accent">{formatAPY(position.currentAPY)}</p>
           {/* APY bar */}
@@ -131,6 +132,15 @@ export function PositionCard({ position, isMock }: Props) {
             />
           </div>
         </div>
+        {livePoolAPY !== undefined && (
+          <div>
+            <p className="text-xs text-gray-500 mb-0.5">
+              Pool APY
+              <span className="ml-1 text-gray-600 text-[10px]">live</span>
+            </p>
+            <p className="font-bold text-cyan-400">{formatAPY(livePoolAPY)}</p>
+          </div>
+        )}
         <div>
           <p className="text-xs text-gray-500 mb-0.5">Position Age</p>
           <p className="font-semibold text-white">{ageDays}</p>
