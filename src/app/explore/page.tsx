@@ -1,13 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAccount } from 'wagmi';
 import { usePositions } from '@/hooks/usePositions';
 import { usePoolData, type PoolInfo } from '@/hooks/usePoolData';
+import { useLeaderboard } from '@/hooks/useLeaderboard';
+import { useWatchList } from '@/hooks/useWatchList';
 import { detectStrategy, type DetectedStrategy, type StrategyStep } from '@/lib/strategyDetector';
 import { scanForLoopStrategists, type DiscoveredWalletStrategy } from '@/lib/strategyScanner';
-import { truncateAddress, formatUSD, formatAPY } from '@/lib/utils';
+import { truncateAddress, formatUSD, formatAPY, formatUSDCompact, scoreColor } from '@/lib/utils';
 import { ConnectButton } from '@/components/wallet/ConnectButton';
 
 // ─── Pool table ───────────────────────────────────────────────────────────────
@@ -346,10 +348,94 @@ function StrategyCard({ strategy, walletAddress, isOwn }: { strategy: DetectedSt
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'strategies' | 'protocols';
+// ─── Yield Earners Tab ────────────────────────────────────────────────────────
+
+function YieldEarnersTab() {
+  const { data: entries, isLoading } = useLeaderboard();
+  const { addresses, add, remove } = useWatchList();
+  const watchedSet = useMemo(() => new Set(addresses.map((a) => a.toLowerCase())), [addresses]);
+
+  const handleFollow = useCallback((address: string) => {
+    if (watchedSet.has(address.toLowerCase())) remove(address);
+    else add(address);
+  }, [watchedSet, add, remove]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-2">
+        {[...Array(10)].map((_, i) => <div key={i} className="h-12 bg-white/5 rounded-lg animate-pulse" />)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border overflow-hidden">
+      <table className="w-full">
+        <thead className="bg-card/50">
+          <tr>
+            <th className="px-3 py-2.5 text-xs text-gray-500 text-center w-10">Rank</th>
+            <th className="px-3 py-2.5 text-xs text-gray-500 text-left">Address</th>
+            <th className="px-3 py-2.5 text-xs text-gray-500 text-right">Score</th>
+            <th className="px-3 py-2.5 text-xs text-gray-500 text-right hidden sm:table-cell">APY</th>
+            <th className="px-3 py-2.5 text-xs text-gray-500 text-right hidden md:table-cell">TVL</th>
+            <th className="px-3 py-2.5 text-xs text-gray-500 text-left hidden lg:table-cell">Strategy</th>
+            <th className="px-3 py-2.5 w-20" />
+          </tr>
+        </thead>
+        <tbody>
+          {(entries ?? []).map((e) => {
+            const isFollowing = watchedSet.has(e.address.toLowerCase());
+            return (
+              <tr key={e.address} className="border-t border-border hover:bg-white/[0.02] transition-colors">
+                <td className="px-3 py-2.5 text-center">
+                  <span className={`text-xs font-bold ${e.rank <= 3 ? 'text-yellow-400' : 'text-gray-500'}`}>
+                    {e.rank <= 3 ? ['🥇', '🥈', '🥉'][e.rank - 1] : `#${e.rank}`}
+                  </span>
+                </td>
+                <td className="px-3 py-2.5">
+                  <p className="text-xs font-mono text-white">{truncateAddress(e.address)}</p>
+                  {e.ensName && <p className="text-[10px] text-gray-500">{e.ensName}</p>}
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <span className={`text-xs font-bold ${scoreColor(e.yieldScore)}`}>{e.yieldScore}</span>
+                </td>
+                <td className="px-3 py-2.5 text-right text-xs text-accent hidden sm:table-cell">{formatAPY(e.weightedAPY)}</td>
+                <td className="px-3 py-2.5 text-right text-xs text-gray-400 hidden md:table-cell">{formatUSDCompact(e.totalDeposited)}</td>
+                <td className="px-3 py-2.5 hidden lg:table-cell">
+                  <div className="flex gap-1 flex-wrap">
+                    {e.strategyTags.slice(0, 2).map((tag) => (
+                      <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400">{tag}</span>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <button
+                    onClick={() => handleFollow(e.address)}
+                    className={`text-[10px] px-2 py-1 rounded border transition-colors ${
+                      isFollowing
+                        ? 'border-accent/30 text-accent bg-accent/5'
+                        : 'border-border text-gray-500 hover:border-accent/30 hover:text-accent'
+                    }`}
+                  >
+                    {isFollowing ? 'Following' : '+ Follow'}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Tab = 'protocols' | 'strategies' | 'earners';
 
 export default function ExplorePage() {
   const [tab, setTab] = useState<Tab>('protocols');
+  // suppress unused import warning — formatUSD used in StrategyCard
   const { isConnected } = useAccount();
   const { data: myPositions, isLoading: myLoading } = usePositions();
   const { data: poolData, isLoading: poolLoading } = usePoolData();
@@ -380,20 +466,27 @@ export default function ExplorePage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white">Explore</h1>
-        <p className="text-sm text-gray-500 mt-1">Discover yield strategies and protocols on MegaETH.</p>
+        <h1 className="text-2xl font-bold text-white">Yield</h1>
+        <p className="text-sm text-gray-500 mt-1">LP pools, yield strategies, and top earners on MegaETH.</p>
       </div>
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-8 border-b border-border">
-        <button onClick={() => setTab('protocols')}
-          className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === 'protocols' ? 'border-accent text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
-          Protocols
-        </button>
-        <button onClick={() => setTab('strategies')}
-          className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === 'strategies' ? 'border-accent text-white' : 'border-transparent text-gray-500 hover:text-gray-300'}`}>
-          Strategies
-        </button>
+        {([
+          ['protocols', 'Protocols'],
+          ['strategies', 'Strategies'],
+          ['earners', 'Yield Earners'],
+        ] as const).map(([v, label]) => (
+          <button
+            key={v}
+            onClick={() => setTab(v)}
+            className={`px-5 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+              tab === v ? 'border-accent text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* ── Strategies tab ── */}
@@ -555,6 +648,17 @@ export default function ExplorePage() {
               isLoading={poolLoading}
             />
           </div>
+        </div>
+      )}
+
+      {/* ── Yield Earners tab ── */}
+      {tab === 'earners' && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="font-semibold text-white mb-1">Top Yield Earners</h2>
+            <p className="text-xs text-gray-500">Ranked by yield score · follow wallets to track on Live Feed</p>
+          </div>
+          <YieldEarnersTab />
         </div>
       )}
     </div>

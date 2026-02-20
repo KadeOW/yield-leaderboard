@@ -12,6 +12,16 @@ export function sqrtPriceAtTick(tick: number): number {
 }
 
 /**
+ * Converts a tick to the decimal-adjusted price of token0 denominated in token1.
+ * price = 1.0001^tick × 10^(decimals0 − decimals1)
+ *
+ * Multiply by token1PriceUSD to get the USD price of token0 at that tick.
+ */
+export function tickToAdjustedPrice(tick: number, decimals0: number, decimals1: number): number {
+  return Math.pow(1.0001, tick) * Math.pow(10, decimals0 - decimals1);
+}
+
+/**
  * Computes the raw token amounts from a Uniswap V3 position.
  * Amounts are in the smallest unit (wei-equivalent); divide by 10^decimals for display.
  *

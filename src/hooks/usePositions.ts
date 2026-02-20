@@ -12,7 +12,8 @@ export function usePositions() {
     queryKey: ['positions', address],
     queryFn: () => getAllPositions(address!),
     enabled: isConnected && !!address,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 15_000,
+    refetchInterval: 15_000,   // re-fetch every 15s for live LP yield/range data
+    refetchIntervalInBackground: false,
   });
 }

@@ -50,7 +50,7 @@ function SkeletonDashboard() {
 
 export default function DashboardPage() {
   const { isConnected, address } = useAccount();
-  const { data: positions, isLoading, isError } = usePositions();
+  const { data: positions, isLoading, isError, dataUpdatedAt } = usePositions();
   const { data: poolData } = usePoolData();
   const { data: portfolio } = useWalletPortfolio();
   const { totalDeposited, totalYieldEarned, weightedAPY, yieldScore, strategyTags } =
@@ -204,6 +204,7 @@ export default function DashboardPage() {
                         ? poolAPYByAddress(poolData, position.assetAddress)
                         : undefined
                     }
+                    dataUpdatedAt={dataUpdatedAt}
                   />
                 ))}
               </div>

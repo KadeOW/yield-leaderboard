@@ -5,10 +5,9 @@ import { usePathname } from 'next/navigation';
 import { useAccount } from 'wagmi';
 import { ConnectButton } from '@/components/wallet/ConnectButton';
 
-const navLinks = [
-  { href: '/dashboard', label: 'Dashboard' },
+const publicLinks = [
   { href: '/leaderboard', label: 'Live Feed' },
-  { href: '/explore', label: 'Explore' },
+  { href: '/explore', label: 'Yield' },
 ];
 
 export function Header() {
@@ -35,7 +34,7 @@ export function Header() {
 
           {/* Nav */}
           <nav className="hidden md:flex items-center gap-1">
-            {navLinks.map((link) => (
+            {publicLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -48,6 +47,18 @@ export function Header() {
                 {link.label}
               </Link>
             ))}
+            {address && (
+              <Link
+                href="/dashboard"
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname === '/dashboard'
+                    ? 'text-white bg-white/10'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                Dashboard
+              </Link>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"

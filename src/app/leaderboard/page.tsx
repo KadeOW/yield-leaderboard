@@ -390,80 +390,6 @@ function TradeRow({ trade }: { trade: Trade }) {
   );
 }
 
-// ─── Yield Tab ────────────────────────────────────────────────────────────────
-
-function YieldTab({ watchedSet, onFollowToggle }: { watchedSet: Set<string>; onFollowToggle: (addr: string) => void }) {
-  const { data: entries, isLoading } = useLeaderboard();
-
-  if (isLoading) {
-    return (
-      <div className="space-y-2">
-        {[...Array(10)].map((_, i) => <div key={i} className="h-12 bg-white/5 rounded-lg animate-pulse" />)}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-xl border border-border overflow-hidden">
-      <table className="w-full">
-        <thead className="bg-card/50">
-          <tr>
-            <th className="px-3 py-2.5 text-xs text-gray-500 text-center">Rank</th>
-            <th className="px-3 py-2.5 text-xs text-gray-500 text-left">Address</th>
-            <th className="px-3 py-2.5 text-xs text-gray-500 text-right">Score</th>
-            <th className="px-3 py-2.5 text-xs text-gray-500 text-right hidden sm:table-cell">APY</th>
-            <th className="px-3 py-2.5 text-xs text-gray-500 text-right hidden md:table-cell">TVL</th>
-            <th className="px-3 py-2.5 text-xs text-gray-500 text-left hidden lg:table-cell">Strategy</th>
-            <th className="px-3 py-2.5" />
-          </tr>
-        </thead>
-        <tbody>
-          {(entries ?? []).map((e) => {
-            const isFollowing = watchedSet.has(e.address.toLowerCase());
-            return (
-              <tr key={e.address} className="border-t border-border hover:bg-white/[0.02] transition-colors">
-                <td className="px-3 py-2.5 text-center">
-                  <span className={`text-xs font-bold ${e.rank <= 3 ? 'text-yellow-400' : 'text-gray-500'}`}>
-                    {e.rank <= 3 ? ['🥇', '🥈', '🥉'][e.rank - 1] : `#${e.rank}`}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5">
-                  <p className="text-xs font-mono text-white">{truncateAddress(e.address)}</p>
-                  {e.ensName && <p className="text-[10px] text-gray-500">{e.ensName}</p>}
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className={`text-xs font-bold ${scoreColor(e.yieldScore)}`}>{e.yieldScore}</span>
-                </td>
-                <td className="px-3 py-2.5 text-right text-xs text-accent hidden sm:table-cell">{formatAPY(e.weightedAPY)}</td>
-                <td className="px-3 py-2.5 text-right text-xs text-gray-400 hidden md:table-cell">{formatUSDCompact(e.totalDeposited)}</td>
-                <td className="px-3 py-2.5 hidden lg:table-cell">
-                  <div className="flex gap-1 flex-wrap">
-                    {e.strategyTags.slice(0, 2).map((tag) => (
-                      <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-gray-400">{tag}</span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <button
-                    onClick={() => onFollowToggle(e.address)}
-                    className={`text-[10px] px-2 py-1 rounded border transition-colors ${
-                      isFollowing
-                        ? 'border-accent/30 text-accent bg-accent/5'
-                        : 'border-border text-gray-500 hover:border-accent/30 hover:text-accent'
-                    }`}
-                  >
-                    {isFollowing ? 'Following' : '+ Follow'}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 // ─── Right Sidebar ─────────────────────────────────────────────────────────────
 
 function MiniLeaderboard({ watchedSet, onFollowToggle }: { watchedSet: Set<string>; onFollowToggle: (addr: string) => void }) {
@@ -1039,7 +965,7 @@ function TokensTab({ trades, watchedSet }: { trades: Trade[]; watchedSet: Set<st
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type FeedTab = 'market' | 'tokens' | 'activity' | 'yield';
+type FeedTab = 'market' | 'tokens' | 'activity';
 
 export default function LivePage() {
   const [feedTab, setFeedTab] = useState<FeedTab>('tokens');
@@ -1062,7 +988,7 @@ export default function LivePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white">Live Feed</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Real-time MegaETH market data · pool activity · top yield earners
+          Real-time MegaETH token prices · pool activity · live trades
         </p>
       </div>
 
@@ -1077,7 +1003,6 @@ export default function LivePage() {
               ['tokens',   'Tokens'],
               ['market',   'Market'],
               ['activity', 'Activity'],
-              ['yield',    'Yield Earners'],
             ] as const).map(([v, label]) => (
               <button
                 key={v}
@@ -1096,7 +1021,6 @@ export default function LivePage() {
           {feedTab === 'tokens'   && <TokensTab trades={tradesData?.trades ?? []} watchedSet={watchedSet} />}
           {feedTab === 'market'   && <MarketTab />}
           {feedTab === 'activity' && <ActivityTab />}
-          {feedTab === 'yield'    && <YieldTab watchedSet={watchedSet} onFollowToggle={handleFollowToggle} />}
         </div>
 
         {/* ── Right: Sidebar (fixed width) ── */}

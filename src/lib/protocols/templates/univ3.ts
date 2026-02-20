@@ -76,6 +76,36 @@ const POOL_ABI = [
       { name: 'unlocked', type: 'bool' },
     ],
   },
+  {
+    name: 'feeGrowthGlobal0X128',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'feeGrowthGlobal1X128',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'ticks',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'tick', type: 'int24' }],
+    outputs: [
+      { name: 'liquidityGross', type: 'uint128' },
+      { name: 'liquidityNet', type: 'int128' },
+      { name: 'feeGrowthOutside0X128', type: 'uint256' },
+      { name: 'feeGrowthOutside1X128', type: 'uint256' },
+      { name: 'tickCumulativeOutside', type: 'int56' },
+      { name: 'secondsPerLiquidityOutsideX128', type: 'uint160' },
+      { name: 'secondsOutside', type: 'uint32' },
+      { name: 'initialized', type: 'bool' },
+    ],
+  },
 ] as const;
 
 const ERC20_ABI = [
@@ -243,6 +273,8 @@ export async function readUniV3Positions(
           tickLower: raw[5],
           tickUpper: raw[6],
           liquidity: raw[7],
+          feeGrowthInside0LastX128: raw[8],  // needed for accurate fee calc
+          feeGrowthInside1LastX128: raw[9],  // needed for accurate fee calc
           tokensOwed0: raw[10],
           tokensOwed1: raw[11],
         };
@@ -315,6 +347,52 @@ export async function readUniV3Positions(
       allowFailure: true,
     });
 
+    // ── Accurate fee calculation ──────────────────────────────────────────────
+    // tokensOwed0/1 from positions() only captures fees settled in previous
+    // interactions. The fees that have accrued since then live in the pool's
+    // global feeGrowth state. We need four extra calls per position:
+    //   feeGrowthGlobal0X128, feeGrowthGlobal1X128, ticks(lower), ticks(upper)
+    const feeGrowthContracts = validPositions.flatMap((pos, i) => {
+      const addr = (poolAddresses[i] ?? ZERO_ADDRESS) as `0x${string}`;
+      return [
+        { address: addr, abi: POOL_ABI, functionName: 'feeGrowthGlobal0X128' as const },
+        { address: addr, abi: POOL_ABI, functionName: 'feeGrowthGlobal1X128' as const },
+        { address: addr, abi: POOL_ABI, functionName: 'ticks' as const, args: [pos.tickLower] as [number] },
+        { address: addr, abi: POOL_ABI, functionName: 'ticks' as const, args: [pos.tickUpper] as [number] },
+      ];
+    });
+    const feeGrowthResults = await client.multicall({ contracts: feeGrowthContracts, allowFailure: true });
+
+    // uint256 arithmetic helper — emulates Solidity's wrapping subtraction
+    const Q256 = 2n ** 256n;
+    const Q128 = 2n ** 128n;
+    function u256Sub(a: bigint, b: bigint): bigint { return ((a - b) % Q256 + Q256) % Q256; }
+
+    function computeFeeGrowthInside(
+      fgGlobal: bigint,
+      fgOutsideLower: bigint,
+      fgOutsideUpper: bigint,
+      currentTick: number,
+      tickLower: number,
+      tickUpper: number,
+    ): bigint {
+      const fgBelow = currentTick >= tickLower ? fgOutsideLower : u256Sub(fgGlobal, fgOutsideLower);
+      const fgAbove = currentTick < tickUpper  ? fgOutsideUpper : u256Sub(fgGlobal, fgOutsideUpper);
+      return u256Sub(u256Sub(fgGlobal, fgBelow), fgAbove);
+    }
+
+    function claimableFees(
+      liquidity: bigint,
+      fgInside: bigint,
+      fgInsideLast: bigint,
+      tokensOwed: bigint,
+      decimals: number,
+    ): number {
+      const delta = u256Sub(fgInside, fgInsideLast);
+      const accrued = (liquidity * delta) / Q128;
+      return parseFloat(formatUnits(tokensOwed + accrued, decimals));
+    }
+
     const now = Math.floor(Date.now() / 1000);
     const positions: Position[] = [];
 
@@ -336,6 +414,8 @@ export async function readUniV3Positions(
       let depositedUSD = 0;
       let yieldEarned = 0;
       let inRange: boolean | undefined = undefined;
+      let feeToken0Amount: number | undefined;
+      let feeToken1Amount: number | undefined;
 
       if (slot0Result.status === 'success' && poolAddr && poolAddr !== ZERO_ADDRESS) {
         const slot0 = slot0Result.result as Slot0Result;
@@ -350,17 +430,14 @@ export async function readUniV3Positions(
         let t1PriceUSD = 0;
 
         if (isWETH(t1Key)) {
-          // token1 is WETH — use ETH price for token1, derive token0 price
           const derived = derivePricesFromSqrtPrice(sqrtPriceX96, t0Decimals, t1Decimals, 'token1', ethPriceUSD);
           t0PriceUSD = derived.token0PriceUSD;
           t1PriceUSD = derived.token1PriceUSD;
         } else if (isWETH(t0Key)) {
-          // token0 is WETH
           const derived = derivePricesFromSqrtPrice(sqrtPriceX96, t0Decimals, t1Decimals, 'token0', ethPriceUSD);
           t0PriceUSD = derived.token0PriceUSD;
           t1PriceUSD = derived.token1PriceUSD;
         }
-        // For non-WETH pairs, prices stay $0 (no price anchor available)
 
         const { amount0, amount1 } = getTokenAmountsFromLiquidity(
           pos.liquidity,
@@ -373,10 +450,38 @@ export async function readUniV3Positions(
         const amount1Human = amount1 / Math.pow(10, t1Decimals);
         depositedUSD = amount0Human * t0PriceUSD + amount1Human * t1PriceUSD;
 
-        // Uncollected fees = yield earned
-        const fees0Human = parseFloat(formatUnits(pos.tokensOwed0, t0Decimals));
-        const fees1Human = parseFloat(formatUnits(pos.tokensOwed1, t1Decimals));
-        yieldEarned = fees0Human * t0PriceUSD + fees1Human * t1PriceUSD;
+        // ── Accurate claimable fee calculation ──────────────────────────────
+        // Read the 4 fee-growth results for this position (flatMap index: i*4)
+        const fgBase = i * 4;
+        const fg0r = feeGrowthResults[fgBase];
+        const fg1r = feeGrowthResults[fgBase + 1];
+        const tickLowerR = feeGrowthResults[fgBase + 2];
+        const tickUpperR = feeGrowthResults[fgBase + 3];
+
+        if (
+          fg0r.status === 'success' && fg1r.status === 'success' &&
+          tickLowerR.status === 'success' && tickUpperR.status === 'success'
+        ) {
+          const fgGlobal0 = fg0r.result as bigint;
+          const fgGlobal1 = fg1r.result as bigint;
+          // ticks() returns a tuple; indices 2 and 3 are feeGrowthOutside0/1
+          const tLow  = tickLowerR.result as readonly [bigint, bigint, bigint, bigint, ...unknown[]];
+          const tHigh = tickUpperR.result as readonly [bigint, bigint, bigint, bigint, ...unknown[]];
+
+          const fgInside0 = computeFeeGrowthInside(fgGlobal0, tLow[2], tHigh[2], currentTick, pos.tickLower, pos.tickUpper);
+          const fgInside1 = computeFeeGrowthInside(fgGlobal1, tLow[3], tHigh[3], currentTick, pos.tickLower, pos.tickUpper);
+
+          const fees0 = claimableFees(pos.liquidity, fgInside0, pos.feeGrowthInside0LastX128, pos.tokensOwed0, t0Decimals);
+          const fees1 = claimableFees(pos.liquidity, fgInside1, pos.feeGrowthInside1LastX128, pos.tokensOwed1, t1Decimals);
+          yieldEarned = fees0 * t0PriceUSD + fees1 * t1PriceUSD;
+          feeToken0Amount = fees0;
+          feeToken1Amount = fees1;
+        } else {
+          // Fallback to tokensOwed if fee growth calls fail
+          feeToken0Amount = parseFloat(formatUnits(pos.tokensOwed0, t0Decimals));
+          feeToken1Amount = parseFloat(formatUnits(pos.tokensOwed1, t1Decimals));
+          yieldEarned = feeToken0Amount * t0PriceUSD + feeToken1Amount * t1PriceUSD;
+        }
       }
 
       const feePct = (pos.fee / 1_000_000) * 100;
@@ -397,6 +502,36 @@ export async function readUniV3Positions(
         currentAPY = FEE_TIER_APY[pos.fee] ?? 10;
       }
 
+      // Compute human-readable token amounts (needed for range display)
+      let token0Amount: number | undefined;
+      let token1Amount: number | undefined;
+      let t0PriceUSDStored: number | undefined;
+      let t1PriceUSDStored: number | undefined;
+
+      if (slot0Result.status === 'success' && poolAddr && poolAddr !== ZERO_ADDRESS) {
+        const slot0 = slot0Result.result as Slot0Result;
+        const sqrtPriceX96 = slot0[0];
+        const { amount0, amount1 } = getTokenAmountsFromLiquidity(
+          pos.liquidity,
+          sqrtPriceX96,
+          pos.tickLower,
+          pos.tickUpper,
+        );
+        token0Amount = amount0 / Math.pow(10, t0Decimals);
+        token1Amount = amount1 / Math.pow(10, t1Decimals);
+
+        // Re-derive prices for storage (same logic as above)
+        if (isWETH(t1Key)) {
+          const derived = derivePricesFromSqrtPrice(sqrtPriceX96, t0Decimals, t1Decimals, 'token1', ethPriceUSD);
+          t0PriceUSDStored = derived.token0PriceUSD;
+          t1PriceUSDStored = derived.token1PriceUSD;
+        } else if (isWETH(t0Key)) {
+          const derived = derivePricesFromSqrtPrice(sqrtPriceX96, t0Decimals, t1Decimals, 'token0', ethPriceUSD);
+          t0PriceUSDStored = derived.token0PriceUSD;
+          t1PriceUSDStored = derived.token1PriceUSD;
+        }
+      }
+
       positions.push({
         protocol: config.name,
         protocolLogo: '',
@@ -409,6 +544,20 @@ export async function readUniV3Positions(
         positionType: config.positionType,
         entryTimestamp,
         inRange,
+        // LP range data
+        tickLower: pos.tickLower,
+        tickUpper: pos.tickUpper,
+        tickCurrent: slot0Result.status === 'success' ? (slot0Result.result as Slot0Result)[1] : undefined,
+        token0Decimals: t0Decimals,
+        token1Decimals: t1Decimals,
+        token0Symbol: t0Symbol,
+        token1Symbol: t1Symbol,
+        token0Amount,
+        token1Amount,
+        token0PriceUSD: t0PriceUSDStored,
+        token1PriceUSD: t1PriceUSDStored,
+        feeToken0Amount,
+        feeToken1Amount,
       });
     }
 
