@@ -16,7 +16,7 @@ const PACKS = [
 // Which rarities each pack targets for the arb comparison
 const PACK_TARGETS: Record<string, string[]> = {
   Starter:  ['Common'],
-  Pristine: ['Rare', 'Epic'],
+  Pristine: ['Rare', 'Legendary'],
   Ultimate: ['Legendary', 'Transcendent'],
 };
 

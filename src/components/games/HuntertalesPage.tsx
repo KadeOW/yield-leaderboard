@@ -132,7 +132,7 @@ function PackArbTable({
       <div className="px-4 py-3 border-b border-[#1e1e1e]">
         <h3 className="text-sm font-semibold text-white">Mint vs Buy — Pack Cost in USD</h3>
         <p className="text-[11px] text-gray-600 mt-0.5">
-          Each pack compared against the cheapest hunter of the matching rarity on OpenSea
+          Mint cost compared against the cheapest hunter of each matching rarity on OpenSea
         </p>
       </div>
 
@@ -140,76 +140,57 @@ function PackArbTable({
         <thead className="bg-white/[0.02]">
           <tr>
             <th className="px-4 py-2.5 text-left text-[10px] text-gray-600 uppercase tracking-wider">Pack</th>
-            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Crown cost</th>
-            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Mint cost (USD)</th>
-            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider hidden sm:table-cell">OS floor</th>
-            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Verdict</th>
+            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Crown</th>
+            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Mint (USD)</th>
+            <th className="px-4 py-2.5 text-left text-[10px] text-gray-600 uppercase tracking-wider pl-6">vs OpenSea by rarity</th>
           </tr>
         </thead>
         <tbody>
-          {packs.map((pack) => (
-            <tr key={pack.name} className="border-t border-[#1a1a1a] hover:bg-white/[0.02]">
-              <td className="px-4 py-3">
-                <p className="text-sm font-semibold text-white">{pack.name}</p>
-                <div className="flex flex-wrap gap-1 mt-0.5">
-                  {pack.targetRarities.map((r) => (
-                    <RarityBadge key={r} rarity={r} />
-                  ))}
-                </div>
-              </td>
-              <td className="px-4 py-3 text-right">
-                <p className="text-sm text-yellow-300">{fmtCrown(pack.crown)}</p>
-              </td>
-              <td className="px-4 py-3 text-right">
-                <p className="text-sm font-semibold text-white">
-                  {pack.mintCostUSD != null ? fmtUSD(pack.mintCostUSD) : '—'}
-                </p>
-              </td>
-              <td className="px-4 py-3 text-right hidden sm:table-cell">
-                {pack.targetFloorETH != null ? (
-                  <>
-                    <p className="text-sm text-white">{fmtETH(pack.targetFloorETH)}</p>
-                    <p className="text-[10px] text-gray-600">{fmtUSD(pack.targetFloorETH * ethPriceUSD)}</p>
-                  </>
-                ) : (
-                  <span className="text-[10px] text-gray-600">—</span>
-                )}
-              </td>
-              <td className="px-4 py-3 text-right">
-                <ArbVerdict
-                  mintCostUSD={pack.mintCostUSD}
-                  targetFloorETH={pack.targetFloorETH}
-                  ethPriceUSD={ethPriceUSD}
-                />
-              </td>
-            </tr>
-          ))}
+          {packs.map((pack) => {
+            const mintUSD = pack.mintCostUSD;
+            return (
+              <tr key={pack.name} className="border-t border-[#1a1a1a] align-top">
+                <td className="px-4 py-3">
+                  <p className="text-sm font-semibold text-white">{pack.name}</p>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <p className="text-sm text-yellow-300">{fmtCrown(pack.crown)}</p>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <p className="text-sm font-semibold text-white">
+                    {mintUSD != null ? fmtUSD(mintUSD) : '—'}
+                  </p>
+                </td>
+                <td className="px-4 py-3 pl-6">
+                  <div className="space-y-2">
+                    {pack.targetRarities.map((rarity) => {
+                      const rf = rarityFloors.find((r) => r.rarity === rarity);
+                      return (
+                        <div key={rarity} className="flex items-center gap-2 flex-wrap">
+                          <RarityBadge rarity={rarity} />
+                          {rf ? (
+                            <span className="text-xs text-gray-400">
+                              {fmtETH(rf.floorETH)}
+                              <span className="text-gray-600 ml-1">({fmtUSD(rf.floorETH * ethPriceUSD)})</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-gray-600">no listings</span>
+                          )}
+                          <ArbVerdict
+                            mintCostUSD={mintUSD}
+                            targetFloorETH={rf?.floorETH ?? null}
+                            ethPriceUSD={ethPriceUSD}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-
-      {/* Per-rarity floors if available */}
-      {rarityFloors.length > 0 && (
-        <div className="border-t border-[#1e1e1e] px-4 py-3">
-          <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">
-            All rarity floors from live listings
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {rarityFloors.map((rf) => (
-              <div
-                key={rf.rarity}
-                className="bg-white/[0.04] rounded-lg px-3 py-2 text-center min-w-[90px]"
-              >
-                <RarityBadge rarity={rf.rarity} />
-                <p className="text-sm font-bold text-white mt-1">{fmtETH(rf.floorETH)}</p>
-                <p className="text-[10px] text-gray-600 mt-0.5">
-                  {fmtUSD(rf.floorETH * ethPriceUSD)}
-                </p>
-                <p className="text-[10px] text-gray-700 mt-0.5">{rf.count} listed</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -288,9 +269,9 @@ export function HuntertalesPage() {
       <div className="card bg-white/[0.02] border border-[#1e1e1e]">
         <p className="text-[11px] text-gray-500 font-semibold mb-2 uppercase tracking-wider">How Packs Work</p>
         <div className="space-y-1.5 text-xs text-gray-500">
-          <p><span className="text-yellow-300 font-semibold">Starter (300 ♛)</span> — Entry pack, higher chance of Common hunters</p>
-          <p><span className="text-blue-300 font-semibold">Pristine (1,000 ♛)</span> — Better odds for Rare &amp; Epic hunters</p>
-          <p><span className="text-purple-300 font-semibold">Ultimate (4,000 ♛)</span> — Best shot at Legendary &amp; Transcendent hunters</p>
+          <p><span className="text-yellow-300 font-semibold">Starter (300 ♛)</span> — Entry pack, Common hunters</p>
+          <p><span className="text-blue-300 font-semibold">Pristine (1,000 ♛)</span> — Rare &amp; Legendary hunters</p>
+          <p><span className="text-purple-300 font-semibold">Ultimate (4,000 ♛)</span> — Legendary &amp; Transcendent hunters</p>
           <p className="text-gray-600 pt-1">
             Minting is a gacha — you get a random rarity. Buying on OpenSea lets you target a specific rarity at a fixed price.
             The arb opportunity is best when the Crown price is low relative to OpenSea floors.
