@@ -165,13 +165,9 @@ function FloorPriceChart({
           dataKey="ts"
           domain={['auto', 'auto']}
           scale="time"
-          tickFormatter={(ts) =>
-            new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-          }
           stroke="transparent"
-          tick={{ fontSize: 9, fill: '#4b5563' }}
+          tick={false}
           tickLine={false}
-          interval="preserveStartEnd"
         />
         <YAxis
           type="number"
