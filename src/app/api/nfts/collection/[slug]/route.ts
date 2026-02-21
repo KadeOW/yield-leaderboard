@@ -6,7 +6,7 @@ import type {
 } from '../../collections/route';
 
 const OPENSEA_BASE = 'https://api.opensea.io/api/v2';
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 90 * 1000;
 
 const slugCache = new Map<string, { data: CollectionDetailResponse; ts: number }>();
 

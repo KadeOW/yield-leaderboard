@@ -15,7 +15,8 @@ export function useNFTCollections() {
   return useQuery<NFTCollection[]>({
     queryKey: ['nft-collections'],
     queryFn: fetchCollections,
-    staleTime: 5 * 60_000,
+    staleTime: 90_000,
+    refetchInterval: 2 * 60_000,
     retry: 1,
   });
 }

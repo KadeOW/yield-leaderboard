@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 const OPENSEA_BASE = 'https://api.opensea.io/api/v2';
 const CHAIN = 'megaeth';
 // 15-min cache: we fetch many pages so want to amortise the cost
-const CACHE_TTL_MS = 15 * 60 * 1000;
+const CACHE_TTL_MS = 2 * 60 * 1000;
 // Paginate until OpenSea says there are no more results (safety cap: 20 pages = 2000 cols)
 const MAX_PAGES = 20;
 

@@ -16,7 +16,8 @@ export function useCollectionDetail(slug: string | null) {
     queryKey: ['nft-collection-detail', slug],
     queryFn: () => fetchCollectionDetail(slug!),
     enabled: !!slug,
-    staleTime: 5 * 60_000,
+    staleTime: 60_000,
+    refetchInterval: 90_000,
     retry: 1,
   });
 }

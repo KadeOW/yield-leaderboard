@@ -4,7 +4,6 @@ import { useState, useMemo } from 'react';
 import { useNFTCollections } from '@/hooks/useNFTCollections';
 import { CollectionModal } from '@/components/assets/CollectionModal';
 import { EcosystemOverview } from '@/components/assets/EcosystemOverview';
-import { HuntertalesPage } from '@/components/games/HuntertalesPage';
 import type { NFTCollection } from '@/app/api/nfts/collections/route';
 import { type Currency, fmtETH, fmtNFTUSD } from '@/lib/nftCurrency';
 
@@ -279,10 +278,12 @@ export default function AssetsPage() {
         ))}
       </div>
 
-      {/* Games tab */}
+      {/* Games tab — coming soon */}
       {activeTab === 'games' && (
-        <div className="max-w-2xl">
-          <HuntertalesPage />
+        <div className="card text-center py-16">
+          <p className="text-3xl mb-4">🎮</p>
+          <p className="text-lg font-semibold text-white mb-1">Games Coming Soon</p>
+          <p className="text-sm text-gray-500">MegaETH game integrations are in progress.</p>
         </div>
       )}
 
