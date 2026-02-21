@@ -13,6 +13,35 @@ import { useMemo } from 'react';
 import { usePoolLiveStats } from '@/hooks/usePoolLiveStats';
 import { useWalletPortfolio } from '@/hooks/useWalletPortfolio';
 import { usePortfolioHistory } from '@/hooks/usePortfolioHistory';
+import { useWalletNFTs } from '@/hooks/useWalletNFTs';
+import type { WalletNFT } from '@/hooks/useWalletNFTs';
+
+function NFTThumb({ nft }: { nft: WalletNFT }) {
+  const displayName = nft.name || `#${nft.identifier}`;
+  return (
+    <div className="flex flex-col gap-1">
+      {nft.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={nft.imageUrl}
+          alt={displayName}
+          className="w-full aspect-square object-cover rounded-lg bg-white/5"
+        />
+      ) : (
+        <div className="w-full aspect-square rounded-lg bg-white/10 flex items-center justify-center text-gray-500 text-xs">
+          NFT
+        </div>
+      )}
+      <p className="text-[10px] text-white font-medium truncate">{displayName}</p>
+      {nft.collectionName && (
+        <p className="text-[9px] text-gray-600 truncate">{nft.collectionName}</p>
+      )}
+      {nft.floorPriceETH != null && (
+        <p className="text-[9px] text-accent">{nft.floorPriceETH.toFixed(4)} ETH</p>
+      )}
+    </div>
+  );
+}
 
 function generateChartData(totalDeposited: number, totalYieldEarned: number) {
   const points = 30;
@@ -67,6 +96,9 @@ export default function DashboardPage() {
 
   // Real 30-day portfolio history from on-chain token price data
   const { data: historyPoints } = usePortfolioHistory(portfolio?.holdings, totalDeposited);
+
+  // Wallet NFTs on MegaETH
+  const { data: walletNFTs } = useWalletNFTs(address);
 
   const chartData = useMemo(
     () =>
@@ -189,6 +221,31 @@ export default function DashboardPage() {
             </div>
           )}
 
+
+          {/* Wallet NFTs */}
+          {walletNFTs && walletNFTs.length > 0 && (
+            <div className="card !py-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-white">
+                  Wallet NFTs
+                  <span className="ml-2 text-sm font-normal text-gray-500">({walletNFTs.length})</span>
+                </p>
+                <a
+                  href={`https://opensea.io/${address}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-accent hover:underline"
+                >
+                  View on OpenSea ↗
+                </a>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                {walletNFTs.slice(0, 12).map((nft) => (
+                  <NFTThumb key={`${nft.contract}-${nft.identifier}`} nft={nft} />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Positions */}
           <div>

@@ -8,6 +8,7 @@ import { ConnectButton } from '@/components/wallet/ConnectButton';
 const publicLinks = [
   { href: '/leaderboard', label: 'Live Feed' },
   { href: '/explore', label: 'Yield' },
+  { href: '/assets', label: 'Assets' },
 ];
 
 export function Header() {
