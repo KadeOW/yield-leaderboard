@@ -31,6 +31,8 @@ export interface NFTCollection {
   change24h: number;
   ownersCount: number;
   itemsCount: number;
+  /** Active listing count from OpenSea stats (0 if not available) */
+  listedCount: number;
   ethPriceUSD: number;
   fetchedAt: number;
 }
@@ -46,19 +48,12 @@ export interface CollectionListing {
   expiresAt: string;
 }
 
-export interface CollectionOffer {
-  orderHash: string;
-  priceETH: number;
-  priceUSD: number;
-  maker: string;
-  expiresAt: string;
-  quantity: number;
-}
 
 export interface CollectionDetailResponse {
   collection: NFTCollection;
   listings: CollectionListing[];
-  offers: CollectionOffer[];
+  /** Count of listings priced within 10 % of the floor (computed from all active listings) */
+  nearFloorCount: number;
 }
 
 export interface WalletNFT {
@@ -169,6 +164,7 @@ function buildMergedCollection(
     change24h,
     ownersCount: Number(total?.num_owners ?? 0),
     itemsCount: Number(c.total_supply ?? 0),
+    listedCount: Number(total?.listed ?? 0),
     ethPriceUSD,
     fetchedAt: Date.now(),
   } satisfies NFTCollection;

@@ -44,7 +44,12 @@ function isActive(c: NFTCollection): boolean {
 }
 
 function sortCollections(list: NFTCollection[], key: SortKey): NFTCollection[] {
-  return [...list].sort((a, b) => {
+  // On the Gainers tab hide collections with fewer than 15 owners — low-holder
+  // collections with big % swings are almost always wash-traded or scam projects.
+  const base = key === 'gainers'
+    ? list.filter((c) => c.ownersCount >= 15 && c.sales24h >= 1)
+    : list;
+  return [...base].sort((a, b) => {
     if (key === 'gainers') return b.change24h - a.change24h;
     if (key === 'volume') return b.volume24h - a.volume24h;
     return b.floorPriceETH - a.floorPriceETH;

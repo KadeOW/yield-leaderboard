@@ -66,17 +66,9 @@ function TokenLogos({ logo0, logo1, sym0, sym1 }: { logo0?: string; logo1?: stri
 function MarketTab() {
   const { data: marketData, isLoading: mktLoading } = useMarketData();
   const { data: poolData, isLoading: poolLoading } = usePoolData();
-  const [view, setView] = useState<'movers' | 'volume' | 'new'>('movers');
+  const [view, setView] = useState<'volume' | 'new'>('volume');
 
   const allPools = useMemo(() => [...(poolData?.prism ?? []), ...(poolData?.kumbaya ?? [])], [poolData]);
-
-  const topMovers: MarketPool[] = useMemo(() =>
-    [...(marketData?.trending ?? [])]
-      .filter((p) => p.tvlUSD > 500)
-      .sort((a, b) => Math.abs(b.priceChange24h) - Math.abs(a.priceChange24h))
-      .slice(0, 20),
-    [marketData],
-  );
 
   const volumeLeaders = useMemo(() =>
     [...allPools].sort((a, b) => b.volume24hUSD - a.volume24hUSD).slice(0, 20),
@@ -94,7 +86,7 @@ function MarketTab() {
     <div className="space-y-4">
       {/* Sub-tabs */}
       <div className="flex gap-1">
-        {([['movers', 'Top Movers'], ['volume', 'Volume Leaders'], ['new', 'New Pools']] as const).map(([v, label]) => (
+        {([['volume', 'Volume Leaders'], ['new', 'New Pools']] as const).map(([v, label]) => (
           <button
             key={v}
             onClick={() => setView(v)}
@@ -108,45 +100,6 @@ function MarketTab() {
       {loading && (
         <div className="space-y-2">
           {[...Array(8)].map((_, i) => <div key={i} className="h-12 bg-white/5 rounded-lg animate-pulse" />)}
-        </div>
-      )}
-
-      {/* Top Movers */}
-      {!loading && view === 'movers' && (
-        <div className="rounded-xl border border-border overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-card/50">
-              <tr>
-                <th className="px-3 py-2.5 text-xs text-gray-500 text-left">Pool</th>
-                <th className="px-3 py-2.5 text-xs text-gray-500 text-right">24h Change</th>
-                <th className="px-3 py-2.5 text-xs text-gray-500 text-right hidden sm:table-cell">TVL</th>
-                <th className="px-3 py-2.5 text-xs text-gray-500 text-right hidden md:table-cell">Volume 24h</th>
-                <th className="px-3 py-2.5 text-xs text-gray-500 text-right">APY</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topMovers.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-8 text-center text-sm text-gray-500">No trending data yet</td></tr>
-              )}
-              {topMovers.map((p) => (
-                <tr key={p.address} className="border-t border-border hover:bg-white/[0.02] transition-colors">
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <TokenLogos logo0={p.token0Logo} logo1={p.token1Logo} sym0={p.token0Symbol} sym1={p.token1Symbol} />
-                      <div>
-                        <p className="text-xs font-medium text-white">{p.token0Symbol}/{p.token1Symbol}</p>
-                        <DexBadge dex={p.dex} />
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-right"><PriceChange pct={p.priceChange24h} /></td>
-                  <td className="px-3 py-2.5 text-right text-xs text-gray-400 hidden sm:table-cell">{formatUSDCompact(p.tvlUSD)}</td>
-                  <td className="px-3 py-2.5 text-right text-xs text-gray-400 hidden md:table-cell">{formatUSDCompact(p.volume24hUSD)}</td>
-                  <td className="px-3 py-2.5 text-right text-xs font-semibold text-accent">{formatAPY(p.apy)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       )}
 

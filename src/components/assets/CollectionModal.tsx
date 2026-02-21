@@ -52,6 +52,66 @@ function StatsStrip({
   );
 }
 
+// ─── Analytics strip ──────────────────────────────────────────────────────────
+
+function pct(numerator: number, denominator: number, decimals = 1): string {
+  if (!denominator || !isFinite(numerator / denominator)) return '—';
+  return `${((numerator / denominator) * 100).toFixed(decimals)}%`;
+}
+
+function AnalyticsStrip({
+  collection,
+  nearFloorCount,
+}: {
+  collection: NFTCollection;
+  /** Server-computed: listings priced ≤ floor × 1.1, counted across ALL active listings */
+  nearFloorCount: number;
+}) {
+  const { itemsCount, ownersCount, listedCount } = collection;
+
+  // % of supply currently listed (listedCount comes from paginating all active listings)
+  const pctListed = pct(listedCount, itemsCount);
+
+  // % of supply held by unique wallets (decentralisation signal)
+  const pctHolders = pct(ownersCount, itemsCount);
+
+  // % of ALL active listings priced within 10% of floor (server-computed from full set)
+  const pctNearFloor = listedCount > 0 ? pct(nearFloorCount, listedCount, 0) : '—';
+
+  const items = [
+    {
+      label: '% Listed',
+      value: pctListed,
+      sub: `${listedCount > 0 ? listedCount.toLocaleString() : '?'} of ${itemsCount > 0 ? itemsCount.toLocaleString() : '?'} items`,
+      title: 'Percentage of total supply currently listed for sale',
+    },
+    {
+      label: 'Unique Holders',
+      value: pctHolders,
+      sub: `${ownersCount > 0 ? ownersCount.toLocaleString() : '?'} wallets`,
+      title: 'Percentage of supply held by distinct wallets',
+    },
+    {
+      label: 'Near Floor',
+      value: pctNearFloor,
+      sub: `${nearFloorCount} of ${listedCount} listings within 10% of floor`,
+      title: 'Percentage of active listings priced within 10% of the floor price',
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-3 border-b border-[#1e1e1e] divide-x divide-[#1e1e1e]">
+      {items.map(({ label, value, sub, title }) => (
+        <div key={label} className="px-3 py-2.5" title={title}>
+          <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">{label}</p>
+          <p className="text-sm font-bold text-white">{value}</p>
+          <p className="text-[10px] text-gray-600 mt-0.5 truncate">{sub}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Floor price scatter chart ─────────────────────────────────────────────────
 
 function ScatterTooltip({
@@ -313,7 +373,7 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
 
   const collection = data?.collection ?? preview;
   const listings = data?.listings ?? [];
-  const offers = data?.offers ?? [];
+  const nearFloorCount = data?.nearFloorCount ?? 0;
   // Use || not ?? so that ethPriceUSD:0 (detail route default) falls through to preview
   const ethPriceUSD = collection?.ethPriceUSD || preview?.ethPriceUSD || 2000;
 
@@ -406,6 +466,11 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
           <StatsStrip collection={collection} currency={currency} ethPriceUSD={ethPriceUSD} />
         )}
 
+        {/* ── Analytics percentages ── */}
+        {collection && (
+          <AnalyticsStrip collection={collection} nearFloorCount={nearFloorCount} />
+        )}
+
         {/* ── Floor Price History ── */}
         <div className="px-5 pt-4 pb-2 border-b border-[#1e1e1e]">
           <div className="flex items-center justify-between mb-3">
@@ -479,44 +544,6 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
                     </p>
                     <p className="text-[10px] text-gray-600">{fmtETH(l.priceETH)}</p>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* ── Best Offers ── */}
-        <div className="px-5 py-3 mb-1">
-          <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">
-            Best Offers
-            {offers.length > 0 && <span className="ml-1 normal-case text-gray-700">({offers.length})</span>}
-          </p>
-          {detailLoading && (
-            <div className="space-y-2">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-6 bg-white/5 rounded animate-pulse" />
-              ))}
-            </div>
-          )}
-          {!detailLoading && offers.length === 0 && (
-            <p className="text-xs text-gray-600">No active offers found.</p>
-          )}
-          {offers.length > 0 && (
-            <div className="space-y-2">
-              {offers.map((o, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <p className="text-xs font-semibold text-white">
-                      {fmtPrice(o.priceETH, currency, ethPriceUSD)}
-                    </p>
-                    <p className="text-[10px] text-gray-600 font-mono">{truncateAddress(o.maker)}</p>
-                    {o.quantity > 1 && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-gray-500">
-                        qty {o.quantity}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-600">{fmtExpiry(o.expiresAt)}</p>
                 </div>
               ))}
             </div>

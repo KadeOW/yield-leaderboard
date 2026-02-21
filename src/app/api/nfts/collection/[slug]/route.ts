@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import type {
   NFTCollection,
   CollectionListing,
-  CollectionOffer,
   CollectionDetailResponse,
 } from '../../collections/route';
 
@@ -31,79 +30,81 @@ function formatExpiry(ts: unknown): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-// OpenSea API v2 listing shape:
-//   price.current.value  — wei string
-//   protocol_data.parameters.offerer  — seller address
-//   protocol_data.parameters.offer[0].identifierOrCriteria  — token id
-//   protocol_data.parameters.endTime  — unix expiry (seconds)
-//   nft.name / nft.image_url / nft.identifier  — NFT metadata (top-level field)
-function parseListings(raw: Record<string, unknown>): CollectionListing[] {
-  const orders = (raw?.listings ?? []) as Record<string, unknown>[];
-  return orders.slice(0, 10).map((o) => {
-    const price = o.price as Record<string, unknown> | null;
-    const current = price?.current as Record<string, unknown> | null;
-    const protocolData = o.protocol_data as Record<string, unknown> | null;
-    const params = protocolData?.parameters as Record<string, unknown> | null;
-    const offerArr = (params?.offer ?? []) as Record<string, unknown>[];
+// ─── Single-item parsers ───────────────────────────────────────────────────────
 
-    const priceETH = weiToEth(current?.value ?? '0');
+function parseListing(o: Record<string, unknown>): CollectionListing {
+  const price = o.price as Record<string, unknown> | null;
+  const current = price?.current as Record<string, unknown> | null;
+  const protocolData = o.protocol_data as Record<string, unknown> | null;
+  const params = protocolData?.parameters as Record<string, unknown> | null;
+  const offerArr = (params?.offer ?? []) as Record<string, unknown>[];
 
-    // v2: NFT details live in the top-level "nft" field (not maker_asset_bundle)
-    const nft = o.nft as Record<string, unknown> | null;
-    const tokenId = String(
-      nft?.identifier ?? offerArr[0]?.identifierOrCriteria ?? '',
-    );
+  const priceETH = weiToEth(current?.value ?? '0');
+  const nft = o.nft as Record<string, unknown> | null;
+  const tokenId = String(nft?.identifier ?? offerArr[0]?.identifierOrCriteria ?? '');
+  const maker = String(params?.offerer ?? '');
+  const expiresAt = formatExpiry(params?.endTime ?? 0);
 
-    // v2: seller is protocol_data.parameters.offerer (not o.maker.address)
-    const maker = String(params?.offerer ?? '');
-
-    // v2: expiry is protocol_data.parameters.endTime (not o.expiration_time)
-    const expiresAt = formatExpiry(params?.endTime ?? 0);
-
-    return {
-      orderHash: String(o.order_hash ?? ''),
-      tokenId,
-      nftName: String(nft?.name ?? `#${tokenId}`),
-      nftImageUrl: nft?.image_url ? String(nft.image_url) : undefined,
-      priceETH,
-      priceUSD: 0, // modal uses ethPriceUSD from the preview collection
-      maker,
-      expiresAt,
-    } satisfies CollectionListing;
-  });
+  return {
+    orderHash: String(o.order_hash ?? ''),
+    tokenId,
+    nftName: String(nft?.name ?? `#${tokenId}`),
+    nftImageUrl: nft?.image_url ? String(nft.image_url) : undefined,
+    priceETH,
+    priceUSD: 0,
+    maker,
+    expiresAt,
+  } satisfies CollectionListing;
 }
 
-// OpenSea API v2 offer shape:
-//   price.current.value  — wei string
-//   protocol_data.parameters.offerer  — buyer address
-//   protocol_data.parameters.endTime  — unix expiry
-function parseOffers(raw: Record<string, unknown>): CollectionOffer[] {
-  const orders = (raw?.offers ?? []) as Record<string, unknown>[];
-  return orders.slice(0, 10).map((o) => {
-    const price = o.price as Record<string, unknown> | null;
-    const current = price?.current as Record<string, unknown> | null;
-    const protocolData = o.protocol_data as Record<string, unknown> | null;
-    const params = protocolData?.parameters as Record<string, unknown> | null;
+// ─── Paginated listing fetch ───────────────────────────────────────────────────
+//
+// OpenSea does NOT return a total listing count from its stats endpoint.
+// We must paginate through all active listings to get an accurate count.
+// Cap at 5 pages × 100 = 500 listings to avoid runaway for large collections.
 
-    const priceETH = weiToEth(current?.value ?? '0');
-    const maker = String(params?.offerer ?? '');
-    const expiresAt = formatExpiry(params?.endTime ?? 0);
-    const quantity = Number(o.quantity_remaining ?? o.quantity ?? 1);
+async function fetchAllListings(
+  slug: string,
+  headers: Record<string, string>,
+): Promise<{ listings: CollectionListing[]; totalCount: number; nearFloorCount: number }> {
+  const all: CollectionListing[] = [];
+  let nextCursor: string | null = null;
 
-    return {
-      orderHash: String(o.order_hash ?? ''),
-      priceETH,
-      priceUSD: 0,
-      maker,
-      expiresAt,
-      quantity: Math.max(1, quantity),
-    } satisfies CollectionOffer;
-  });
+  for (let page = 0; page < 5; page++) {
+    const url: string = nextCursor
+      ? `${OPENSEA_BASE}/listings/collection/${slug}/all?limit=100&next=${encodeURIComponent(nextCursor)}`
+      : `${OPENSEA_BASE}/listings/collection/${slug}/all?limit=100`;
+
+    const res: Response = await fetch(url, { headers });
+    if (!res.ok) break;
+    const data: Record<string, unknown> = await res.json();
+    const batch = (data?.listings ?? []) as Record<string, unknown>[];
+    all.push(...batch.map(parseListing));
+    nextCursor = data.next ? String(data.next) : null;
+    if (!nextCursor) break;
+  }
+
+  // Sort cheapest first (API returns sorted, but ensure consistency)
+  all.sort((a, b) => a.priceETH - b.priceETH);
+
+  const totalCount = all.length;
+  const floorPrice = all[0]?.priceETH ?? 0;
+  const nearFloorCount =
+    floorPrice > 0 ? all.filter((l) => l.priceETH <= floorPrice * 1.1).length : 0;
+
+  return {
+    listings: all.slice(0, 10), // only first 10 shown in the modal
+    totalCount,
+    nearFloorCount,
+  };
 }
+
+// ─── Collection metadata / stats builder ─────────────────────────────────────
 
 function buildCollection(
   meta: Record<string, unknown>,
   stats: Record<string, unknown> | null,
+  listedCount: number,
 ): NFTCollection {
   const total = (stats?.total ?? null) as Record<string, unknown> | null;
   const intervals = ((stats?.intervals ?? []) as Record<string, unknown>[]);
@@ -141,21 +142,20 @@ function buildCollection(
     change24h,
     ownersCount: Number(total?.num_owners ?? 0),
     itemsCount: Number(meta.total_supply ?? 0),
+    listedCount, // from paginated listing fetch — accurate count
     fetchedAt: Date.now(),
   };
 }
 
+// ─── Main fetch ───────────────────────────────────────────────────────────────
+
 async function fetchDetail(slug: string): Promise<CollectionDetailResponse> {
   const headers = osHeaders();
 
-  // Correct OpenSea API v2 paths:
-  //   /listings/collection/{slug}/all   — cheapest active listings
-  //   /offers/collection/{slug}/best    — highest collection-level offers
-  const [metaRes, statsRes, listingsRes, offersRes] = await Promise.allSettled([
+  // Run meta and stats in parallel; listings are paginated separately
+  const [metaRes, statsRes] = await Promise.allSettled([
     fetch(`${OPENSEA_BASE}/collections/${slug}`, { headers }),
     fetch(`${OPENSEA_BASE}/collections/${slug}/stats`, { headers }),
-    fetch(`${OPENSEA_BASE}/listings/collection/${slug}/all?limit=10`, { headers }),
-    fetch(`${OPENSEA_BASE}/offers/collection/${slug}/best?limit=10`, { headers }),
   ]);
 
   const meta: Record<string, unknown> =
@@ -168,22 +168,17 @@ async function fetchDetail(slug: string): Promise<CollectionDetailResponse> {
       ? await statsRes.value.json()
       : null;
 
-  const listingsData: Record<string, unknown> | null =
-    listingsRes.status === 'fulfilled' && listingsRes.value.ok
-      ? await listingsRes.value.json()
-      : null;
-
-  const offersData: Record<string, unknown> | null =
-    offersRes.status === 'fulfilled' && offersRes.value.ok
-      ? await offersRes.value.json()
-      : null;
+  // Paginate all listings to get accurate listedCount and nearFloorCount
+  const { listings, totalCount, nearFloorCount } = await fetchAllListings(slug, headers);
 
   return {
-    collection: buildCollection(meta, statsData),
-    listings: listingsData ? parseListings(listingsData) : [],
-    offers: offersData ? parseOffers(offersData) : [],
+    collection: buildCollection(meta, statsData, totalCount),
+    listings,
+    nearFloorCount,
   };
 }
+
+// ─── Route handler ────────────────────────────────────────────────────────────
 
 export async function GET(
   _req: Request,
