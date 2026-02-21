@@ -8,7 +8,7 @@ const CROWN_CONTRACT = '0xf7d2F0d0b0517CBDbf87C86910ce10FaAab3589D';
 const CACHE_TTL_MS = 60 * 1000; // 1-minute cache for live arb data
 
 // Pack mint costs in Crown
-export const PACKS = [
+const PACKS = [
   { name: 'Starter',  crown: 300  },
   { name: 'Pristine', crown: 1000 },
   { name: 'Ultimate', crown: 4000 },

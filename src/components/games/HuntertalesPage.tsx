@@ -226,19 +226,27 @@ function LiveListings({
             href={l.openseaUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.02] transition-colors"
+            className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
           >
+            {/* Rank */}
+            <span className="text-xs text-gray-600 font-mono w-5 shrink-0 text-right">{i + 1}</span>
+
+            {/* Image */}
             {l.imageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={l.imageUrl} alt={l.name} className="w-9 h-9 rounded-lg object-cover shrink-0 bg-white/5" />
+              <img src={l.imageUrl} alt={l.name} className="w-12 h-12 rounded-xl object-cover shrink-0 bg-white/5" />
             ) : (
-              <div className="w-9 h-9 rounded-lg bg-white/5 shrink-0 flex items-center justify-center text-gray-600 text-xs">
-                ?
+              <div className="w-12 h-12 rounded-xl bg-white/5 shrink-0 flex items-center justify-center text-gray-600 text-lg">
+                ⚔️
               </div>
             )}
+
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-white truncate">{l.name}</p>
-              {l.rarity && <RarityBadge rarity={l.rarity} />}
+              <p className="text-sm font-medium text-white truncate">{l.name}</p>
+              {l.rarity
+                ? <RarityBadge rarity={l.rarity} />
+                : <span className="text-[10px] text-gray-600">Unknown rarity</span>
+              }
             </div>
             <div className="text-right shrink-0">
               <p className="text-sm font-bold text-[#00FF94]">{fmtETH(l.priceETH)}</p>

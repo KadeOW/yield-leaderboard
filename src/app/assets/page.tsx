@@ -244,8 +244,8 @@ export default function AssetsPage() {
           </p>
         </div>
 
-        {/* ETH / USD toggle */}
-        <div className="flex items-center bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-1">
+        {/* ETH / USD toggle — hidden on Games tab */}
+        <div className={`flex items-center bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl p-1 ${activeTab === 'games' ? 'invisible' : ''}`}>
           {(['eth', 'usd'] as Currency[]).map((c) => (
             <button
               key={c}
