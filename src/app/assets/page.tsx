@@ -4,8 +4,11 @@ import { useState, useMemo } from 'react';
 import { useNFTCollections } from '@/hooks/useNFTCollections';
 import { CollectionModal } from '@/components/assets/CollectionModal';
 import { EcosystemOverview } from '@/components/assets/EcosystemOverview';
+import { HuntertalesPage } from '@/components/games/HuntertalesPage';
 import type { NFTCollection } from '@/app/api/nfts/collections/route';
 import { type Currency, fmtETH, fmtNFTUSD } from '@/lib/nftCurrency';
+
+type AssetTab = 'nfts' | 'games';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -187,6 +190,7 @@ const PAGE_SIZE = 30;
 
 export default function AssetsPage() {
   const { data: collections, isLoading, isError } = useNFTCollections();
+  const [activeTab, setActiveTab] = useState<AssetTab>('nfts');
   const [sortKey, setSortKey] = useState<SortKey>('volume');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
@@ -260,21 +264,35 @@ export default function AssetsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5">
-        <button className="px-4 py-2 rounded-lg text-sm font-medium bg-white/10 text-white">
-          NFTs
-        </button>
-        <button
-          className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 cursor-default"
-          disabled
-        >
-          Games <span className="text-[10px] text-gray-700 ml-1">coming soon</span>
-        </button>
+        {([['nfts', 'NFTs'], ['games', 'Games']] as [AssetTab, string][]).map(([tab, label]) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === tab
+                ? 'bg-white/10 text-white'
+                : 'text-gray-500 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Ecosystem overview */}
-      {!isLoading && !isError && collections && collections.length > 0 && (
+      {/* Games tab */}
+      {activeTab === 'games' && (
+        <div className="max-w-2xl">
+          <HuntertalesPage />
+        </div>
+      )}
+
+      {/* Ecosystem overview (NFTs tab only) */}
+      {activeTab === 'nfts' && !isLoading && !isError && collections && collections.length > 0 && (
         <EcosystemOverview collections={collections} currency={currency} />
       )}
+
+      {/* NFTs tab content */}
+      {activeTab === 'nfts' && <>
 
       {/* Search + sort */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -383,6 +401,8 @@ export default function AssetsPage() {
           onClose={() => setSelectedSlug(null)}
         />
       )}
+
+      </> /* end NFTs tab */}
     </div>
   );
 }
