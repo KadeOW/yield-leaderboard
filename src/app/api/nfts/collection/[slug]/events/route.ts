@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const OPENSEA_BASE = 'https://api.opensea.io/api/v2';
-const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_TTL_MS = 60 * 1000;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

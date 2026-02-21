@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState, useMemo } from 'react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  CartesianGrid, Cell, ScatterChart, Scatter, ZAxis, Legend,
+  CartesianGrid, Cell, ScatterChart, Scatter, ZAxis, Legend, ReferenceLine,
 } from 'recharts';
 import { useCollectionDetail } from '@/hooks/useCollectionDetail';
 import { useCollectionEvents } from '@/hooks/useCollectionEvents';
 import { truncateAddress } from '@/lib/utils';
 import type { NFTCollection } from '@/app/api/nfts/collections/route';
+import type { SaleEvent } from '@/app/api/nfts/collection/[slug]/events/route';
 import { type Currency, fmtETH, fmtNFTUSD, fmtNFTPrice } from '@/lib/nftCurrency';
 
 // ─── Formatting helpers ────────────────────────────────────────────────────────
@@ -19,6 +20,16 @@ function fmtPrice(ethVal: number, currency: Currency, ethPriceUSD: number): stri
 
 function fmtExpiry(s: string): string {
   return s || 'No expiry';
+}
+
+function timeAgo(tsMs: number): string {
+  const secs = Math.floor((Date.now() - tsMs) / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 // ─── Stats strip ──────────────────────────────────────────────────────────────
@@ -62,21 +73,28 @@ function pct(numerator: number, denominator: number, decimals = 1): string {
 function AnalyticsStrip({
   collection,
   nearFloorCount,
+  sales,
 }: {
   collection: NFTCollection;
-  /** Server-computed: listings priced ≤ floor × 1.1, counted across ALL active listings */
   nearFloorCount: number;
+  sales: SaleEvent[];
 }) {
-  const { itemsCount, ownersCount, listedCount } = collection;
+  const { itemsCount, ownersCount, listedCount, floorPriceETH } = collection;
 
-  // % of supply currently listed (listedCount comes from paginating all active listings)
   const pctListed = pct(listedCount, itemsCount);
-
-  // % of supply held by unique wallets (decentralisation signal)
   const pctHolders = pct(ownersCount, itemsCount);
-
-  // % of ALL active listings priced within 10% of floor (server-computed from full set)
   const pctNearFloor = listedCount > 0 ? pct(nearFloorCount, listedCount, 0) : '—';
+
+  // Avg sale price vs floor gap (last 10 sales)
+  const recent = sales.slice(0, 10);
+  const avgSaleETH = recent.length > 0
+    ? recent.reduce((s, x) => s + x.priceETH, 0) / recent.length
+    : null;
+  const gapPct = avgSaleETH != null && floorPriceETH > 0
+    ? ((avgSaleETH - floorPriceETH) / floorPriceETH) * 100
+    : null;
+  const gapStr = gapPct != null ? `${gapPct >= 0 ? '+' : ''}${gapPct.toFixed(1)}%` : '—';
+  const gapPositive = gapPct != null && gapPct >= 0;
 
   const items = [
     {
@@ -84,27 +102,37 @@ function AnalyticsStrip({
       value: pctListed,
       sub: `${listedCount > 0 ? listedCount.toLocaleString() : '?'} of ${itemsCount > 0 ? itemsCount.toLocaleString() : '?'} items`,
       title: 'Percentage of total supply currently listed for sale',
+      color: null,
     },
     {
       label: 'Unique Holders',
       value: pctHolders,
       sub: `${ownersCount > 0 ? ownersCount.toLocaleString() : '?'} wallets`,
       title: 'Percentage of supply held by distinct wallets',
+      color: null,
     },
     {
       label: 'Near Floor',
       value: pctNearFloor,
-      sub: `${nearFloorCount} of ${listedCount} listings within 10% of floor`,
+      sub: `${nearFloorCount} of ${listedCount} within 10% of floor`,
       title: 'Percentage of active listings priced within 10% of the floor price',
+      color: null,
+    },
+    {
+      label: 'Avg Sale vs Floor',
+      value: gapStr,
+      sub: recent.length > 0 ? `avg of last ${recent.length} sales` : 'no recent sales',
+      title: 'Average recent sale price compared to the current floor — positive means buyers paid above floor',
+      color: gapPct != null ? (gapPositive ? '#00FF94' : '#f87171') : null,
     },
   ];
 
   return (
-    <div className="grid grid-cols-3 border-b border-[#1e1e1e] divide-x divide-[#1e1e1e]">
-      {items.map(({ label, value, sub, title }) => (
+    <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-[#1e1e1e] divide-x divide-y sm:divide-y-0 divide-[#1e1e1e]">
+      {items.map(({ label, value, sub, title, color }) => (
         <div key={label} className="px-3 py-2.5" title={title}>
           <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-1">{label}</p>
-          <p className="text-sm font-bold text-white">{value}</p>
+          <p className="text-sm font-bold" style={{ color: color ?? '#fff' }}>{value}</p>
           <p className="text-[10px] text-gray-600 mt-0.5 truncate">{sub}</p>
         </div>
       ))}
@@ -195,6 +223,161 @@ function FloorPriceChart({
         <Scatter data={data} fill="#00FF94" fillOpacity={0.75} />
       </ScatterChart>
     </ResponsiveContainer>
+  );
+}
+
+// ─── Spread chart (asks vs trades) ────────────────────────────────────────────
+
+function SpreadTooltip({
+  active,
+  payload,
+  currency,
+  ethPriceUSD,
+}: {
+  active?: boolean;
+  payload?: { payload: { price: number; label: string } }[];
+  currency: Currency;
+  ethPriceUSD: number;
+}) {
+  if (!active || !payload?.length) return null;
+  const { price, label } = payload[0].payload;
+  return (
+    <div className="bg-[#0d0d0d] border border-[#333] rounded-xl px-3 py-2 text-xs shadow-2xl">
+      <p className="text-gray-500 mb-0.5">{label}</p>
+      <p className="text-white font-bold">{fmtPrice(price, currency, ethPriceUSD)}</p>
+    </div>
+  );
+}
+
+function SpreadChart({
+  listings,
+  sales,
+  floorPriceETH,
+  currency,
+  ethPriceUSD,
+}: {
+  listings: { priceETH: number }[];
+  sales: SaleEvent[];
+  floorPriceETH: number;
+  currency: Currency;
+  ethPriceUSD: number;
+}) {
+  const mult = currency === 'usd' ? ethPriceUSD : 1;
+  const floorDisplay = floorPriceETH * mult;
+
+  // Pin asks to y=1 row, recent sales to y=0 row — two clear horizontal bands
+  const askData = listings.map((l) => ({ price: l.priceETH * mult, y: 1, label: 'Listing (ask)' }));
+  const tradeData = sales.slice(0, 20).map((s) => ({ price: s.priceETH * mult, y: 0, label: 'Recent sale' }));
+
+  const allPrices = [...askData, ...tradeData].map((d) => d.price).filter((p) => p > 0);
+  if (allPrices.length === 0) return null;
+
+  const minP = Math.min(...allPrices) * 0.9;
+  const maxP = Math.max(...allPrices) * 1.1;
+
+  return (
+    <ResponsiveContainer width="100%" height={100}>
+      <ScatterChart margin={{ top: 4, right: 8, bottom: 4, left: 52 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#1a1a1a" horizontal={false} />
+        <XAxis
+          type="number"
+          dataKey="price"
+          domain={[minP, maxP]}
+          stroke="transparent"
+          tick={{ fontSize: 9, fill: '#4b5563' }}
+          tickLine={false}
+          tickFormatter={(v) => {
+            const s = fmtPrice(v, currency, 1);
+            return s.length > 8 ? s.slice(0, 7) + '…' : s;
+          }}
+        />
+        {/* Y-axis shows row labels instead of numbers */}
+        <YAxis
+          type="number"
+          dataKey="y"
+          domain={[-0.5, 1.5]}
+          ticks={[0, 1]}
+          tickFormatter={(v) => (v === 1 ? 'Asks' : 'Sales')}
+          stroke="transparent"
+          tick={{ fontSize: 9, fill: '#6b7280' }}
+          tickLine={false}
+          width={46}
+        />
+        <ZAxis range={[28, 28]} />
+        <Tooltip
+          cursor={false}
+          content={
+            <SpreadTooltip
+              currency={currency === 'usd' ? 'usd' : 'eth'}
+              ethPriceUSD={1}
+            />
+          }
+        />
+        {floorDisplay > 0 && (
+          <ReferenceLine
+            x={floorDisplay}
+            stroke="#555"
+            strokeDasharray="4 3"
+            label={{ value: 'Floor', position: 'insideTopRight', fontSize: 9, fill: '#6b7280' }}
+          />
+        )}
+        <Scatter data={askData} fill="#3B82F6" fillOpacity={0.85} />
+        <Scatter data={tradeData} fill="#00FF94" fillOpacity={0.85} />
+      </ScatterChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ─── Sales feed ────────────────────────────────────────────────────────────────
+
+function SalesFeed({
+  sales,
+  currency,
+  ethPriceUSD,
+  loading,
+}: {
+  sales: SaleEvent[];
+  currency: Currency;
+  ethPriceUSD: number;
+  loading: boolean;
+}) {
+  const sorted = [...sales].sort((a, b) => b.ts - a.ts).slice(0, 15);
+
+  return (
+    <div>
+      <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">Recent Sales</p>
+      {loading && (
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => (
+            <div key={i} className="h-7 bg-white/5 rounded animate-pulse" />
+          ))}
+        </div>
+      )}
+      {!loading && sorted.length === 0 && (
+        <p className="text-xs text-gray-600">No recent sales data.</p>
+      )}
+      {!loading && sorted.length > 0 && (
+        <div className="space-y-1.5">
+          {sorted.map((s, i) => (
+            <div key={i} className="flex items-center gap-2.5">
+              {s.imgUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={s.imgUrl} alt={`#${s.tokenId}`} className="w-7 h-7 rounded object-cover shrink-0 bg-white/5" />
+              ) : (
+                <div className="w-7 h-7 rounded bg-white/5 shrink-0" />
+              )}
+              <p className="text-[10px] text-gray-500 font-mono shrink-0">
+                #{s.tokenId.length > 6 ? s.tokenId.slice(0, 6) + '…' : s.tokenId}
+              </p>
+              <p className="text-xs font-semibold text-white flex-1">
+                {fmtPrice(s.priceETH, currency, ethPriceUSD)}
+              </p>
+              <p className="text-[10px] text-gray-600 shrink-0">{timeAgo(s.ts)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -464,7 +647,7 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
 
         {/* ── Analytics percentages ── */}
         {collection && (
-          <AnalyticsStrip collection={collection} nearFloorCount={nearFloorCount} />
+          <AnalyticsStrip collection={collection} nearFloorCount={nearFloorCount} sales={sales} />
         )}
 
         {/* ── Floor Price History ── */}
@@ -486,6 +669,26 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
           )}
         </div>
 
+        {/* ── Spread Chart (asks vs trades) ── */}
+        {(listings.length > 0 || sales.length > 0) && collection && (
+          <div className="px-5 pt-4 pb-3 border-b border-[#1e1e1e]">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] text-gray-600 uppercase tracking-wider">Price Spread</p>
+              <div className="flex items-center gap-3 text-[10px] text-gray-600">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#3B82F6] inline-block" />Listings</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-[#00FF94] inline-block" />Sales</span>
+              </div>
+            </div>
+            <SpreadChart
+              listings={listings}
+              sales={sales}
+              floorPriceETH={collection.floorPriceETH}
+              currency={currency}
+              ethPriceUSD={ethPriceUSD}
+            />
+          </div>
+        )}
+
         {/* ── Listed vs Sold Activity ── */}
         <div className="px-5 pt-4 pb-3 border-b border-[#1e1e1e]">
           {eventsLoading ? (
@@ -503,6 +706,11 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
             <VolumeChart collection={collection} currency={currency} ethPriceUSD={ethPriceUSD} />
           </div>
         )}
+
+        {/* ── Recent Sales Feed ── */}
+        <div className="px-5 pt-4 pb-3 border-b border-[#1e1e1e]">
+          <SalesFeed sales={sales} currency={currency} ethPriceUSD={ethPriceUSD} loading={eventsLoading} />
+        </div>
 
         {/* ── Active Listings ── */}
         <div className="px-5 py-3 border-b border-[#1e1e1e]">

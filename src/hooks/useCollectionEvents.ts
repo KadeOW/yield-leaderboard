@@ -16,7 +16,8 @@ export function useCollectionEvents(slug: string | null) {
     queryKey: ['nft-collection-events', slug],
     queryFn: () => fetchCollectionEvents(slug!),
     enabled: !!slug,
-    staleTime: 10 * 60_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
 }
