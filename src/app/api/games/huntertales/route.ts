@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 const OPENSEA_BASE = 'https://api.opensea.io/api/v2';
 const HUNTER_SLUG = 'huntertaleshunters';
+const HUNTER_CONTRACT = '0x7716418a6bb9f136423cc9aeba7d1e20a9a1c31f';
 const CROWN_CONTRACT = '0xf7d2F0d0b0517CBDbf87C86910ce10FaAab3589D';
 
 const CACHE_TTL_MS = 60 * 1000; // 1-minute cache for live arb data
@@ -115,11 +116,13 @@ async function fetchCollectionStats(): Promise<{ floorETH: number; volume24h: nu
   }
 }
 
-// ─── OpenSea: cheapest listing per rarity via trait-filtered queries ───────────
+// ─── OpenSea: per-rarity floors via batch listing + individual trait lookups ───
 //
-// Querying the cheapest 20 listings overall only returns Common hunters (lowest
-// price). To get Rare/Epic/Legendary/Transcendent floors we query each rarity
-// directly using OpenSea's trait_type / trait_value filter params.
+// OpenSea's MegaETH indexing ignores trait filter params on the listings
+// endpoint, returning the same cheapest listings regardless of rarity.
+// Instead: fetch the cheapest 50 listings, look up each token's traits in
+// parallel, then group by the rarity trait to build accurate per-rarity floors.
+// Rarities not found in the batch show as null (displayed as "—" in the UI).
 
 function extractPriceETH(listing: Record<string, unknown>): number {
   const price = listing.price as Record<string, unknown> | null;
@@ -131,30 +134,66 @@ function extractPriceETH(listing: Record<string, unknown>): number {
 async function fetchRarityFloors(): Promise<RarityFloor[]> {
   const headers = osHeaders();
 
-  const results = await Promise.allSettled(
-    RARITY_ORDER.map(async (rarity) => {
-      try {
-        const url =
-          `${OPENSEA_BASE}/listings/collection/${HUNTER_SLUG}/all` +
-          `?limit=5&trait_type=Rarity&trait_value=${encodeURIComponent(rarity)}`;
-        const res = await fetch(url, { headers });
-        if (!res.ok) return null;
-        const data = await res.json();
-        const listings = (data?.listings ?? []) as Record<string, unknown>[];
-        if (!listings.length) return null;
-        const prices = listings.map(extractPriceETH).filter((p) => p > 0);
-        if (!prices.length) return null;
-        return { rarity, floorETH: Math.min(...prices), count: prices.length } satisfies RarityFloor;
-      } catch {
-        return null;
-      }
-    }),
+  // Fetch cheapest 50 active listings
+  let rawListings: Record<string, unknown>[] = [];
+  try {
+    const res = await fetch(
+      `${OPENSEA_BASE}/listings/collection/${HUNTER_SLUG}/all?limit=50`,
+      { headers },
+    );
+    if (res.ok) {
+      const data = await res.json();
+      rawListings = (data?.listings ?? []) as Record<string, unknown>[];
+    }
+  } catch { /* fall through */ }
+
+  if (rawListings.length === 0) return [];
+
+  // Extract price + token ID
+  const parsed = rawListings.map((o) => {
+    const nft = o.nft as Record<string, unknown> | null;
+    return {
+      tokenId: String(nft?.identifier ?? ''),
+      priceETH: extractPriceETH(o),
+    };
+  });
+
+  // Parallel trait lookups for each token
+  const traitResults = await Promise.allSettled(
+    parsed.map(({ tokenId }) =>
+      fetch(
+        `${OPENSEA_BASE}/chain/megaeth/contract/${HUNTER_CONTRACT}/nfts/${tokenId}`,
+        { headers },
+      )
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ),
   );
 
-  return results
-    .filter((r): r is PromiseFulfilledResult<RarityFloor> =>
-      r.status === 'fulfilled' && r.value !== null)
-    .map((r) => r.value)
+  // Build per-rarity floors from results that have a recognisable rarity trait
+  const byRarity: Record<string, number[]> = {};
+  parsed.forEach((p, i) => {
+    const result = traitResults[i];
+    if (result.status !== 'fulfilled' || !result.value) return;
+    const nftData = result.value?.nft as Record<string, unknown> | null;
+    const traits = (nftData?.traits ?? []) as Record<string, unknown>[];
+    const rarityTrait = traits.find((t) =>
+      ['rarity', 'tier', 'class', 'grade'].includes(
+        String(t.trait_type ?? '').toLowerCase(),
+      ),
+    );
+    if (!rarityTrait) return;
+    const rarity = String(rarityTrait.value);
+    if (!byRarity[rarity]) byRarity[rarity] = [];
+    byRarity[rarity].push(p.priceETH);
+  });
+
+  return Object.entries(byRarity)
+    .map(([rarity, prices]) => ({
+      rarity,
+      floorETH: Math.min(...prices),
+      count: prices.length,
+    }))
     .sort((a, b) => RARITY_ORDER.indexOf(a.rarity) - RARITY_ORDER.indexOf(b.rarity));
 }
 
