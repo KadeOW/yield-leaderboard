@@ -46,17 +46,17 @@ function RarityBadge({ rarity }: { rarity: string }) {
 
 function ArbVerdict({
   mintCostUSD,
-  floorETH,
+  targetFloorETH,
   ethPriceUSD,
 }: {
   mintCostUSD: number | null;
-  floorETH: number;
+  targetFloorETH: number | null;
   ethPriceUSD: number;
 }) {
-  if (mintCostUSD == null || floorETH === 0) {
-    return <span className="text-[10px] text-gray-600">—</span>;
+  if (mintCostUSD == null || targetFloorETH == null || targetFloorETH === 0) {
+    return <span className="text-[10px] text-gray-600">No listings</span>;
   }
-  const floorUSD = floorETH * ethPriceUSD;
+  const floorUSD = targetFloorETH * ethPriceUSD;
   const savings = floorUSD - mintCostUSD;
   const pct = ((Math.abs(savings) / Math.max(mintCostUSD, floorUSD)) * 100).toFixed(0);
 
@@ -120,23 +120,19 @@ function CrownCard({
 
 function PackArbTable({
   packs,
-  collectionFloorETH,
   ethPriceUSD,
   rarityFloors,
 }: {
   packs: PackArb[];
-  collectionFloorETH: number;
   ethPriceUSD: number;
   rarityFloors: RarityFloor[];
 }) {
-  const floorUSD = collectionFloorETH * ethPriceUSD;
-
   return (
     <div className="card !p-0 overflow-hidden">
       <div className="px-4 py-3 border-b border-[#1e1e1e]">
         <h3 className="text-sm font-semibold text-white">Mint vs Buy — Pack Cost in USD</h3>
         <p className="text-[11px] text-gray-600 mt-0.5">
-          Compared against the current OpenSea floor ({floorUSD > 0 ? fmtUSD(floorUSD) : '—'} · {fmtETH(collectionFloorETH)})
+          Each pack compared against the cheapest hunter of the matching rarity on OpenSea
         </p>
       </div>
 
@@ -146,7 +142,8 @@ function PackArbTable({
             <th className="px-4 py-2.5 text-left text-[10px] text-gray-600 uppercase tracking-wider">Pack</th>
             <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Crown cost</th>
             <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Mint cost (USD)</th>
-            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">vs Floor</th>
+            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider hidden sm:table-cell">OS floor</th>
+            <th className="px-4 py-2.5 text-right text-[10px] text-gray-600 uppercase tracking-wider">Verdict</th>
           </tr>
         </thead>
         <tbody>
@@ -154,6 +151,11 @@ function PackArbTable({
             <tr key={pack.name} className="border-t border-[#1a1a1a] hover:bg-white/[0.02]">
               <td className="px-4 py-3">
                 <p className="text-sm font-semibold text-white">{pack.name}</p>
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {pack.targetRarities.map((r) => (
+                    <RarityBadge key={r} rarity={r} />
+                  ))}
+                </div>
               </td>
               <td className="px-4 py-3 text-right">
                 <p className="text-sm text-yellow-300">{fmtCrown(pack.crown)}</p>
@@ -163,10 +165,20 @@ function PackArbTable({
                   {pack.mintCostUSD != null ? fmtUSD(pack.mintCostUSD) : '—'}
                 </p>
               </td>
+              <td className="px-4 py-3 text-right hidden sm:table-cell">
+                {pack.targetFloorETH != null ? (
+                  <>
+                    <p className="text-sm text-white">{fmtETH(pack.targetFloorETH)}</p>
+                    <p className="text-[10px] text-gray-600">{fmtUSD(pack.targetFloorETH * ethPriceUSD)}</p>
+                  </>
+                ) : (
+                  <span className="text-[10px] text-gray-600">—</span>
+                )}
+              </td>
               <td className="px-4 py-3 text-right">
                 <ArbVerdict
                   mintCostUSD={pack.mintCostUSD}
-                  floorETH={collectionFloorETH}
+                  targetFloorETH={pack.targetFloorETH}
                   ethPriceUSD={ethPriceUSD}
                 />
               </td>
@@ -179,7 +191,7 @@ function PackArbTable({
       {rarityFloors.length > 0 && (
         <div className="border-t border-[#1e1e1e] px-4 py-3">
           <p className="text-[10px] text-gray-600 uppercase tracking-wider mb-2">
-            OpenSea Floor by Rarity (from live listings)
+            All rarity floors from live listings
           </p>
           <div className="flex flex-wrap gap-2">
             {rarityFloors.map((rf) => (
@@ -326,7 +338,6 @@ export function HuntertalesPage() {
       {/* Pack arb table */}
       <PackArbTable
         packs={data.packs}
-        collectionFloorETH={data.collectionFloorETH}
         ethPriceUSD={data.ethPriceUSD}
         rarityFloors={data.rarityFloors}
       />

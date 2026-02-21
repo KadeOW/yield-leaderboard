@@ -14,6 +14,13 @@ const PACKS = [
   { name: 'Ultimate', crown: 4000 },
 ] as const;
 
+// Which rarities each pack targets for the arb comparison
+const PACK_TARGETS: Record<string, string[]> = {
+  Starter:  ['Common'],
+  Pristine: ['Rare', 'Epic'],
+  Ultimate: ['Legendary', 'Transcendent'],
+};
+
 export interface HunterListing {
   tokenId: string;
   name: string;
@@ -33,6 +40,8 @@ export interface PackArb {
   name: string;
   crown: number;
   mintCostUSD: number | null;
+  targetRarities: string[];
+  targetFloorETH: number | null; // cheapest floor among target rarities from live listings
 }
 
 export interface HuntertalesData {
@@ -218,11 +227,20 @@ async function buildData(): Promise<HuntertalesData> {
       fetchHunterListings(),
     ]);
 
-  const packs: PackArb[] = PACKS.map((p) => ({
-    name: p.name,
-    crown: p.crown,
-    mintCostUSD: crownPriceUSD != null ? crownPriceUSD * p.crown : null,
-  }));
+  const packs: PackArb[] = PACKS.map((p) => {
+    const targetRarities = PACK_TARGETS[p.name] ?? [];
+    const targetPrices = hunterData.rarityFloors
+      .filter((rf) => targetRarities.includes(rf.rarity))
+      .map((rf) => rf.floorETH);
+    const targetFloorETH = targetPrices.length > 0 ? Math.min(...targetPrices) : null;
+    return {
+      name: p.name,
+      crown: p.crown,
+      mintCostUSD: crownPriceUSD != null ? crownPriceUSD * p.crown : null,
+      targetRarities,
+      targetFloorETH,
+    };
+  });
 
   return {
     crownPriceUSD,
