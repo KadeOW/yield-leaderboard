@@ -1,7 +1,7 @@
 'use client';
 
 import { useHuntertales } from '@/hooks/useHuntertales';
-import type { HunterListing, RarityFloor, PackArb } from '@/app/api/games/huntertales/route';
+import type { RarityFloor, PackArb } from '@/app/api/games/huntertales/route';
 
 // ─── Formatting ───────────────────────────────────────────────────────────────
 
@@ -214,64 +214,6 @@ function PackArbTable({
   );
 }
 
-// ─── Live listings ─────────────────────────────────────────────────────────────
-
-function LiveListings({
-  listings,
-  ethPriceUSD,
-}: {
-  listings: HunterListing[];
-  ethPriceUSD: number;
-}) {
-  if (listings.length === 0) return null;
-
-  return (
-    <div className="card !p-0 overflow-hidden">
-      <div className="px-4 py-3 border-b border-[#1e1e1e]">
-        <h3 className="text-sm font-semibold text-white">Cheapest Hunters on OpenSea</h3>
-        <p className="text-[11px] text-gray-600 mt-0.5">Live listings · sorted by price</p>
-      </div>
-      <div className="divide-y divide-[#1a1a1a]">
-        {listings.map((l, i) => (
-          <a
-            key={i}
-            href={l.openseaUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
-          >
-            {/* Rank */}
-            <span className="text-xs text-gray-600 font-mono w-5 shrink-0 text-right">{i + 1}</span>
-
-            {/* Image */}
-            {l.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={l.imageUrl} alt={l.name} className="w-12 h-12 rounded-xl object-cover shrink-0 bg-white/5" />
-            ) : (
-              <div className="w-12 h-12 rounded-xl bg-white/5 shrink-0 flex items-center justify-center text-gray-600 text-lg">
-                ⚔️
-              </div>
-            )}
-
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-white truncate">{l.name}</p>
-              {l.rarity
-                ? <RarityBadge rarity={l.rarity} />
-                : <span className="text-[10px] text-gray-600">Unknown rarity</span>
-              }
-            </div>
-            <div className="text-right shrink-0">
-              <p className="text-sm font-bold text-[#00FF94]">{fmtETH(l.priceETH)}</p>
-              <p className="text-[10px] text-gray-500">{fmtUSD(l.priceETH * ethPriceUSD)}</p>
-            </div>
-            <span className="text-gray-700 text-xs shrink-0">↗</span>
-          </a>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
 function Skeleton() {
@@ -355,9 +297,6 @@ export function HuntertalesPage() {
           </p>
         </div>
       </div>
-
-      {/* Live listings */}
-      <LiveListings listings={data.listings} ethPriceUSD={data.ethPriceUSD} />
 
       {/* Last updated */}
       <p className="text-[10px] text-gray-700 text-center">
