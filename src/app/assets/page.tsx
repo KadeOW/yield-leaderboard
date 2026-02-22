@@ -146,7 +146,7 @@ function CollectionRow({
         </div>
       </div>
 
-      {collection.volume24h > 0 && collection.volume7d > 0 && changeText !== '—' ? (
+      {Math.abs(collection.change24h) >= 0.5 && changeText !== '—' ? (
         <span
           className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${
             positive ? 'bg-green-400/10 text-green-400' : 'bg-red-400/10 text-red-400'

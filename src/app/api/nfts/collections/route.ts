@@ -90,6 +90,39 @@ async function getEthPriceUSD(): Promise<number> {
   }
 }
 
+// ─── Internal floor-price history (for 24h change when OS data is unreliable) ─
+//
+// OpenSea's MegaETH stats API returns vol24h = 0 for most collections, so the
+// volume-based change formula produces nothing useful. Instead we record the
+// live floor (cheapest listing) every time the cache refreshes (~2 min) and
+// compute the real % change vs the price from ~24h ago. Before 24h of history
+// has accumulated the volume formula is used as a fallback.
+
+const HISTORY_MAX_MS = 26 * 60 * 60 * 1000; // keep 26 h of history
+const priceHistory = new Map<string, { priceETH: number; ts: number }[]>();
+
+function recordFloorPrice(slug: string, priceETH: number): void {
+  if (priceETH <= 0) return;
+  const now = Date.now();
+  const hist = priceHistory.get(slug) ?? [];
+  hist.push({ priceETH, ts: now });
+  priceHistory.set(slug, hist.filter((h) => h.ts >= now - HISTORY_MAX_MS));
+}
+
+/** Returns floor % change vs the closest recorded price from ≥24h ago, or 0. */
+function getFloorChange24h(slug: string, currentPrice: number): number {
+  if (currentPrice <= 0) return 0;
+  const hist = priceHistory.get(slug) ?? [];
+  const target = Date.now() - 24 * 60 * 60 * 1000;
+  // Walk backwards to find the newest entry that is at least 24h old
+  let ref: { priceETH: number; ts: number } | null = null;
+  for (const h of hist) {
+    if (h.ts <= target) ref = h;
+  }
+  if (!ref || ref.priceETH <= 0) return 0;
+  return ((currentPrice - ref.priceETH) / ref.priceETH) * 100;
+}
+
 // ─── Collection cache ─────────────────────────────────────────────────────────
 
 let cache: { data: NFTCollection[]; ts: number } | null = null;
@@ -249,6 +282,18 @@ async function fetchCollections(): Promise<NFTCollection[]> {
 
     return buildMergedCollection(c, statData, ethPriceUSD, listingFloorETH);
   });
+
+  // Apply internal floor-price history: compute 24h change from our own
+  // records, then record the latest price for future comparisons.
+  // If no history exists yet, the volume-based change24h (from buildMergedCollection)
+  // is kept as the fallback.
+  for (const col of merged) {
+    const floorChange = getFloorChange24h(col.slug, col.floorPriceETH);
+    if (floorChange !== 0) {
+      col.change24h = floorChange;
+    }
+    recordFloorPrice(col.slug, col.floorPriceETH);
+  }
 
   // Sort: verified → approved → activity score → total volume
   merged.sort((a, b) => {
