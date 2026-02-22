@@ -109,16 +109,28 @@ function recordFloorPrice(slug: string, priceETH: number): void {
   priceHistory.set(slug, hist.filter((h) => h.ts >= now - HISTORY_MAX_MS));
 }
 
-/** Returns floor % change vs the closest recorded price from ≥24h ago, or 0. */
+/**
+ * Returns floor % change vs the best available reference price.
+ * Priority: price from ≥24h ago → oldest available price point.
+ * This means badges appear within minutes of server startup rather than
+ * requiring a full 24h of history to accumulate first.
+ */
 function getFloorChange24h(slug: string, currentPrice: number): number {
   if (currentPrice <= 0) return 0;
   const hist = priceHistory.get(slug) ?? [];
-  const target = Date.now() - 24 * 60 * 60 * 1000;
-  // Walk backwards to find the newest entry that is at least 24h old
+  if (hist.length < 2) return 0; // need at least one prior reading
+
+  const target24h = Date.now() - 24 * 60 * 60 * 1000;
+
+  // Prefer the newest entry that is at least 24h old (true 24h comparison)
   let ref: { priceETH: number; ts: number } | null = null;
   for (const h of hist) {
-    if (h.ts <= target) ref = h;
+    if (h.ts <= target24h) ref = h;
   }
+
+  // Fall back to the oldest entry we have (shorter window, still directional)
+  if (!ref) ref = hist[0];
+
   if (!ref || ref.priceETH <= 0) return 0;
   return ((currentPrice - ref.priceETH) / ref.priceETH) * 100;
 }

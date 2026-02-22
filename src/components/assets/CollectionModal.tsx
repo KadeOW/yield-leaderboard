@@ -557,11 +557,18 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
   const ethPriceUSD = rawCollection?.ethPriceUSD || preview?.ethPriceUSD || 2000;
 
   // The live floor is the cheapest active listing we have — this is always more
-  // accurate than the stats API floor. Fall back to collection/preview if no listings.
+  // accurate than the stats API floor.
+  // Fallback priority:
+  //   1. listings[0].priceETH  — cheapest listing in the Active Listings table
+  //   2. preview.floorPriceETH — from the list view's ?limit=1 call (reliable)
+  //   3. rawCollection.floorPriceETH — detail route (may use stale stats)
+  // preview must come before rawCollection because when the detail listing fetch
+  // fails, rawCollection.floorPriceETH falls back to the stale stats floor_price
+  // which can be very different from the actual cheapest listing.
   const liveFloorETH =
     listings[0]?.priceETH ||
-    rawCollection?.floorPriceETH ||
     preview?.floorPriceETH ||
+    rawCollection?.floorPriceETH ||
     0;
 
   // Patch fields that the detail route leaves as 0 so all child components see
