@@ -105,6 +105,7 @@ function buildCollection(
   meta: Record<string, unknown>,
   stats: Record<string, unknown> | null,
   listedCount: number,
+  listingFloorETH: number = 0, // cheapest active listing; overrides stale stats floor
 ): NFTCollection {
   const total = (stats?.total ?? null) as Record<string, unknown> | null;
   const intervals = ((stats?.intervals ?? []) as Record<string, unknown>[]);
@@ -120,6 +121,10 @@ function buildCollection(
   const contracts = ((meta.contracts ?? []) as Record<string, unknown>[]);
   const slug = String(meta.collection ?? meta.slug ?? '');
 
+  // Prefer the live listing floor (exact cheapest ask) over the OpenSea stats
+  // floor_price, which is often stale or incorrect for MegaETH collections.
+  const floorPriceETH = listingFloorETH || Number(total?.floor_price ?? 0);
+
   return {
     slug,
     name: String(meta.name ?? ''),
@@ -129,7 +134,7 @@ function buildCollection(
     openseaUrl: `https://opensea.io/collection/${slug}`,
     contractAddress: String(contracts[0]?.address ?? ''),
     safelistStatus: String(meta.safelist_status ?? 'not_requested'),
-    floorPriceETH: Number(total?.floor_price ?? 0),
+    floorPriceETH,
     floorPriceUSD: 0,
     ethPriceUSD: 0,
     volume24h: vol24h,
@@ -142,7 +147,7 @@ function buildCollection(
     change24h,
     ownersCount: Number(total?.num_owners ?? 0),
     itemsCount: Number(meta.total_supply ?? 0),
-    listedCount, // from paginated listing fetch — accurate count
+    listedCount,
     fetchedAt: Date.now(),
   };
 }
@@ -168,11 +173,13 @@ async function fetchDetail(slug: string): Promise<CollectionDetailResponse> {
       ? await statsRes.value.json()
       : null;
 
-  // Paginate all listings to get accurate listedCount and nearFloorCount
+  // Paginate all listings to get accurate listedCount, nearFloorCount, and the
+  // real floor price (cheapest active ask — more reliable than the stats API).
   const { listings, totalCount, nearFloorCount } = await fetchAllListings(slug, headers);
+  const listingFloorETH = listings[0]?.priceETH ?? 0;
 
   return {
-    collection: buildCollection(meta, statsData, totalCount),
+    collection: buildCollection(meta, statsData, totalCount, listingFloorETH),
     listings,
     nearFloorCount,
   };

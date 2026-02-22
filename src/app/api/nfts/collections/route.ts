@@ -122,10 +122,15 @@ function isNFTCollection(c: Record<string, unknown>): boolean {
   });
 }
 
+function weiToEth(weiStr: unknown): number {
+  try { return Number(BigInt(String(weiStr))) / 1e18; } catch { return 0; }
+}
+
 function buildMergedCollection(
   c: Record<string, unknown>,
   statData: Record<string, unknown> | null,
   ethPriceUSD: number,
+  listingFloorETH: number = 0, // cheapest active ask; overrides stale stats floor
 ): NFTCollection {
   const total = (statData?.total ?? null) as Record<string, unknown> | null;
   const intervals = ((statData?.intervals ?? []) as Record<string, unknown>[]);
@@ -141,7 +146,9 @@ function buildMergedCollection(
   const contracts = ((c.contracts ?? []) as Record<string, unknown>[]);
   const slug = String(c.collection ?? '');
   const safelist = String(c.safelist_status ?? 'not_requested');
-  const floorPriceETH = Number(total?.floor_price ?? 0);
+
+  // Prefer live listing floor over stale stats floor_price
+  const floorPriceETH = listingFloorETH || Number(total?.floor_price ?? 0);
 
   return {
     slug,
@@ -200,22 +207,47 @@ async function fetchCollections(): Promise<NFTCollection[]> {
   // Filter to NFT token standards only (ERC-721, ERC-721c, ERC-1155)
   const nftCollections = rawCollections.filter(isNFTCollection);
 
-  // Fetch stats for all NFT collections in parallel
-  const statsResults = await Promise.allSettled(
-    nftCollections.map((c) => {
-      const slug = String(c.collection ?? '');
-      return fetch(`${OPENSEA_BASE}/collections/${slug}/stats`, { headers })
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null);
-    }),
-  );
+  // Fetch stats + cheapest listing for every collection in parallel.
+  // The cheapest active listing is the real floor price; the stats floor_price
+  // is often stale or incorrect for MegaETH collections.
+  const [statsResults, listingResults] = await Promise.all([
+    Promise.allSettled(
+      nftCollections.map((c) => {
+        const slug = String(c.collection ?? '');
+        return fetch(`${OPENSEA_BASE}/collections/${slug}/stats`, { headers })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+      }),
+    ),
+    Promise.allSettled(
+      nftCollections.map((c) => {
+        const slug = String(c.collection ?? '');
+        return fetch(`${OPENSEA_BASE}/listings/collection/${slug}/all?limit=1`, { headers })
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+      }),
+    ),
+  ]);
 
   const merged: NFTCollection[] = nftCollections.map((c, i) => {
-    const result = statsResults[i];
-    const statData = result.status === 'fulfilled'
-      ? (result.value as Record<string, unknown> | null)
+    const statResult = statsResults[i];
+    const statData = statResult.status === 'fulfilled'
+      ? (statResult.value as Record<string, unknown> | null)
       : null;
-    return buildMergedCollection(c, statData, ethPriceUSD);
+
+    // Extract cheapest listing price as the live floor
+    let listingFloorETH = 0;
+    const listingResult = listingResults[i];
+    if (listingResult.status === 'fulfilled' && listingResult.value) {
+      const rawListings = ((listingResult.value as Record<string, unknown>)?.listings ?? []) as Record<string, unknown>[];
+      if (rawListings.length > 0) {
+        const price = rawListings[0].price as Record<string, unknown> | null;
+        const current = price?.current as Record<string, unknown> | null;
+        listingFloorETH = weiToEth(current?.value ?? '0');
+      }
+    }
+
+    return buildMergedCollection(c, statData, ethPriceUSD, listingFloorETH);
   });
 
   // Sort: verified → approved → activity score → total volume
