@@ -550,11 +550,30 @@ export function CollectionModal({ slug, preview, currency, onClose }: Props) {
   const { data, isLoading: detailLoading } = useCollectionDetail(slug);
   const { data: eventsData, isLoading: eventsLoading } = useCollectionEvents(slug);
 
-  const collection = data?.collection ?? preview;
+  const rawCollection = data?.collection ?? preview;
   const listings = data?.listings ?? [];
   const nearFloorCount = data?.nearFloorCount ?? 0;
   // Use || not ?? so that ethPriceUSD:0 (detail route default) falls through to preview
-  const ethPriceUSD = collection?.ethPriceUSD || preview?.ethPriceUSD || 2000;
+  const ethPriceUSD = rawCollection?.ethPriceUSD || preview?.ethPriceUSD || 2000;
+
+  // The live floor is the cheapest active listing we have — this is always more
+  // accurate than the stats API floor. Fall back to collection/preview if no listings.
+  const liveFloorETH =
+    listings[0]?.priceETH ||
+    rawCollection?.floorPriceETH ||
+    preview?.floorPriceETH ||
+    0;
+
+  // Patch fields that the detail route leaves as 0 so all child components see
+  // consistent, non-zero values regardless of which data source is active.
+  const collection = rawCollection
+    ? {
+        ...rawCollection,
+        floorPriceETH: liveFloorETH,
+        floorPriceUSD: liveFloorETH * ethPriceUSD,
+        ethPriceUSD,
+      }
+    : undefined;
 
   const sales = eventsData?.sales ?? [];
   const activity = eventsData?.activity ?? [];
